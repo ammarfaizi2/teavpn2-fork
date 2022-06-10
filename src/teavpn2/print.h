@@ -112,10 +112,10 @@ do {							\
 	 *
 	 * The evaluation of `MAX_NOTICE_LEVEL` could be at compile time!
 	 */
-	#define MAX_NOTICE_LEVEL 5
+	#define MAX_NOTICE_LEVEL 10
 #endif
 
-#define DEFAULT_NOTICE_LEVEL 5
+#define DEFAULT_NOTICE_LEVEL 10
 
 #define prl_notice(LEVEL, ...)				\
 do {							\
