@@ -1213,6 +1213,7 @@ static int el_epl_handle_new_conn(struct epoll_wrk *thread, uint32_t addr,
 		 */
 		return (ret == -EAGAIN) ? 0 : ret;
 	}
+	sess->addr = *saddr;
 
 	/*
 	 * If we succeed in calling create_udp_sess4(),
