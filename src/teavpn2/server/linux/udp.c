@@ -749,7 +749,7 @@ static __cold int el_epl_init_threads_data(struct srv_state *state)
 		state->cfg->sys.thread_num = 1;
 	}
 
-	threads = alloc_pinned_faulted(nn * sizeof(threads));
+	threads = alloc_pinned_faulted(nn * sizeof(*threads));
 	if (!threads)
 		return -ENOMEM;
 
