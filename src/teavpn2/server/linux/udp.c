@@ -1108,6 +1108,7 @@ static __hot ssize_t el_epl_send_to_client(struct epoll_wrk *thread,
 	if (unlikely(ret < 0))
 		pr_err("sendto(): " PRERF, PREAR(-ret));
 
+	prl_notice(6, "sendto(): %zd bytes", ret);
 	return ret;
 }
 
@@ -1491,7 +1492,7 @@ static __hot int el_epl_handle_event_udp(struct epoll_wrk *thread, int fd)
 		return ret;
 	}
 
-	prl_notice(4, "recvfrom(): %zd bytes", ret);
+	prl_notice(6, "recvfrom(): %zd bytes", ret);
 	thread->pkt.len = (size_t)ret;
 	return _el_epl_handle_event_udp(thread, &saddr);
 }
