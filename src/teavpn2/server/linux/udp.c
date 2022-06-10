@@ -1351,6 +1351,8 @@ static __hot int el_epl_handle_auth_pkt(struct epoll_wrk *thread,
 	sess->ipv4_iff = ipv4_iff;
 	sess->is_authenticated = true;
 	set_ipv4_route_map(thread->state->route_map4, ipv4_iff, sess->idx);
+	prl_notice(2, "\"%s\" has been connected with private IPv4 %s",
+		   auth.username, auth_res->iff.ipv4);
 	return 0;
 }
 
