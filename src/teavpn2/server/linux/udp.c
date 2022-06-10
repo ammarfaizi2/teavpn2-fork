@@ -1506,7 +1506,7 @@ static __hot int el_epl_handle_event_udp(struct epoll_wrk *thread, int fd)
 
 static __hot int el_epl_route_ipv4_packet(struct epoll_wrk *thread,
 					  uint32_t dst_addr,
-					  struct pkt_tun_data *tdata,
+					  struct srv_pkt *pkt,
 					  size_t len)
 {
 	struct udp_sess *sess;
@@ -1520,7 +1520,8 @@ static __hot int el_epl_route_ipv4_packet(struct epoll_wrk *thread,
 
 	idx = (uint16_t)find;
 	sess = &thread->state->sess[idx];
-	ret = el_epl_send_to_client(thread, sess, tdata, len, MSG_DONTWAIT);
+	len = srv_pprep(pkt, TSRV_PKT_TUN_DATA, len, 0);
+	ret = el_epl_send_to_client(thread, sess, pkt, len, MSG_DONTWAIT);
 	if (unlikely(ret < 0))
 		return (int)ret;
 
@@ -1528,16 +1529,16 @@ static __hot int el_epl_route_ipv4_packet(struct epoll_wrk *thread,
 }
 
 static __hot int el_epl_route_packet(struct epoll_wrk *thread,
-				     struct pkt_tun_data *tdata,
+				     struct srv_pkt *pkt,
 				     size_t len)
 {
-	struct iphdr *iphdr = &tdata->iphdr;
+	struct iphdr *iphdr = &pkt->tun_data.iphdr;
 	int ret = 0;
 
 	if (likely(iphdr->version == 4)) {
 		uint32_t dst_addr = ntohl(iphdr->daddr);
 
-		ret = el_epl_route_ipv4_packet(thread, dst_addr, tdata, len);
+		ret = el_epl_route_ipv4_packet(thread, dst_addr, pkt, len);
 		if (likely(ret != -ENOENT))
 			return 0;
 	} else {
@@ -1572,7 +1573,7 @@ static __hot int el_epl_handle_event_tun(struct epoll_wrk *thread, int fd)
 	}
 
 	prl_notice(6, "read(tun_fd=%d): %zd bytes", fd, ret);
-	return el_epl_route_packet(thread, tdata, (size_t)ret);
+	return el_epl_route_packet(thread, &thread->pkt.srv, (size_t)ret);
 }
 
 static __hot int el_epl_handle_event(struct epoll_wrk *thread,
