@@ -320,6 +320,7 @@ static void memzero_explicit(void *addr, size_t len)
 
 static void *alloc_pinned(size_t len)
 {
+#if 0
 	void *r;
 	int err;
 
@@ -340,6 +341,8 @@ static void *alloc_pinned(size_t len)
 		return NULL;
 	}
 	return r;
+#endif
+	return calloc(1, len);
 }
 
 static void *alloc_pinned_faulted(size_t len)
@@ -358,9 +361,12 @@ static void free_pinned(void *p, size_t len)
 {
 	if (unlikely(!p))
 		return;
-
+#if 0
 	len = (len + 4095ul) & -4096ul;
 	munmap(p, len);
+#endif
+	free(p);
+	(void)len;
 }
 
 static __cold int select_event_loop(struct srv_state *state,
