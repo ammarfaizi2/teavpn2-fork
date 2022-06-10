@@ -1415,6 +1415,7 @@ static __hot int el_epl_handle_tun_pkt(struct epoll_wrk *thread,
 		return el_epl_handle_pkt_write_error(sess, tun_fd, data_len,
 						     ret);
 
+	prl_notice(6, "write(tun_fd=%d): %zd bytes", tun_fd, ret);
 	return 0;
 }
 
@@ -1564,6 +1565,7 @@ static __hot int el_epl_handle_event_tun(struct epoll_wrk *thread, int fd)
 		return ret;
 	}
 
+	prl_notice(6, "read(tun_fd=%d): %zd bytes", fd, ret);
 	return el_epl_route_packet(thread, tdata, (size_t)ret);
 }
 
