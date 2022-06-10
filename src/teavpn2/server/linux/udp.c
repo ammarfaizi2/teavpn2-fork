@@ -721,8 +721,7 @@ static __cold int init_session_map_ipv4(struct srv_state *state)
 
 static __cold int init_route_map_ipv4(struct srv_state *state)
 {
-	atomic_u16 (*route_map4)[0x100] = NULL;
-	int err;
+	atomic_u16 (*route_map4)[0x100];
 
 	route_map4 = alloc_pinned_faulted(ROUTE_MAP4_SIZE);
 	if (!route_map4)
