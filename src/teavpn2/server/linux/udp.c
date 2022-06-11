@@ -1069,25 +1069,6 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 	return ret;
 }
 
-static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
-	__acquires(&state->sess_stk_lock)
-	__releases(&state->sess_stk_lock)
-{
-	int ret;
-
-	mutex_lock(&state->sess_stk_lock);
-	ret = remove_udp_sess_from_bucket(state, sess);
-	if (unlikely(ret)) {
-		mutex_unlock(&state->sess_stk_lock);
-		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
-		return ret;
-	}
-	BUG_ON(bt_stack_push(&state->sess_stk, sess->idx) == -1);
-	reset_session(sess, sess->idx);
-	mutex_unlock(&state->sess_stk_lock);
-	return ret;
-}
-
 static __hot ssize_t el_epl_send_to_client(struct epoll_wrk *thread,
 					   struct udp_sess *sess,
 					   const void *buffer, size_t buflen,
@@ -1138,19 +1119,43 @@ static int32_t get_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
 	return (int32_t)(ret - 1);
 }
 
-static int el_epl_close_udp_sess(struct epoll_wrk *thread,
-				 struct udp_sess *sess)
+static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
+	__acquires(&state->sess_stk_lock)
+	__releases(&state->sess_stk_lock)
+{
+	int ret;
+
+	mutex_lock(&state->sess_stk_lock);
+	ret = remove_udp_sess_from_bucket(state, sess);
+	if (unlikely(ret)) {
+		mutex_unlock(&state->sess_stk_lock);
+		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
+		return ret;
+	}
+	BUG_ON(bt_stack_push(&state->sess_stk, sess->idx) == -1);
+	reset_session(sess, sess->idx);
+	mutex_unlock(&state->sess_stk_lock);
+	return ret;
+}
+
+static int _el_epl_close_udp_sess(struct epoll_wrk *thread,
+				  struct udp_sess *sess)
 {
 	struct srv_pkt *srv_pkt = &thread->pkt.srv;
 	size_t send_len;
 
 	prl_notice(2, "Closing connection from " PRWIU "...", W_IU(sess));
-
 	if (sess->ipv4_iff != 0)
 		del_ipv4_route_map(thread->state->route_map4, sess->ipv4_iff);
 
 	send_len = srv_pprep(srv_pkt, TSRV_PKT_CLOSE, 0, 0);
-	el_epl_send_to_client(thread, sess, srv_pkt, send_len, 0);
+	return (int)el_epl_send_to_client(thread, sess, srv_pkt, send_len, 0);
+}
+
+static int el_epl_close_udp_sess(struct epoll_wrk *thread,
+				 struct udp_sess *sess)
+{
+	_el_epl_close_udp_sess(thread, sess);
 	return delete_udp_sess4(thread->state, sess);
 }
 
@@ -1822,9 +1827,7 @@ static void _el_epl_destroy_sess(struct epoll_wrk *thread,
 		if (!cur)
 			break;
 
-		mutex_unlock(&state->sess_map4_lock);
-		el_epl_close_udp_sess(thread, cur);
-		mutex_lock(&state->sess_map4_lock);
+		_el_epl_close_udp_sess(thread, cur);
 		if (need_free) {
 			struct udp_sess_map4 *tmp = iter;
 			iter = iter->next;
