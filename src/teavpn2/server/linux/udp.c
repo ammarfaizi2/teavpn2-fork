@@ -1031,6 +1031,130 @@ static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 	return ret;
 }
 
+static int remove_udp_sess_from_bucket(struct srv_state *state,
+				       struct udp_sess *sess)
+	__acquires(&state->sess_map4_lock)
+	__releases(&state->sess_map4_lock)
+{
+	struct udp_sess_map4 *iter, *prev = NULL;
+	struct udp_sess *cur;
+	unsigned depth = 0;
+	int ret = 0;
+
+	mutex_lock(&state->sess_map4_lock);
+	iter = get_sess_map4(state->sess_map4, sess->src_addr);
+	do {
+		cur = iter->sess;
+		if (!cur) {
+			ret = -ENOENT;
+			break;
+		}
+
+		if (cur == sess) {
+			iter->sess = NULL;
+			if (depth > 0) {
+				puts("del case 2");
+				prev->next = NULL;
+				free(cur);
+			} else {
+				puts("del case 1");
+			}
+			break;
+		}
+
+		depth++;
+		prev = iter;
+		iter = iter->next;
+	} while (iter);
+	mutex_unlock(&state->sess_map4_lock);
+
+	return ret;
+}
+
+static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
+	__acquires(&state->sess_stk_lock)
+	__releases(&state->sess_stk_lock)
+{
+	int ret;
+
+	mutex_lock(&state->sess_stk_lock);
+	ret = remove_udp_sess_from_bucket(state, sess);
+	if (unlikely(ret)) {
+		mutex_unlock(&state->sess_stk_lock);
+		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
+		return ret;
+	}
+	BUG_ON(bt_stack_push(&state->sess_stk, sess->idx) == -1);
+	reset_session(sess, sess->idx);
+	mutex_unlock(&state->sess_stk_lock);
+	return ret;
+}
+
+static __hot ssize_t el_epl_send_to_client(struct epoll_wrk *thread,
+					   struct udp_sess *sess,
+					   const void *buffer, size_t buflen,
+					   int flags)
+{
+	ssize_t ret;
+
+	ret = __sys_sendto(thread->state->udp_fd, buffer, buflen, flags,
+			   (struct sockaddr *)&sess->addr, sizeof(sess->addr));
+	if (unlikely(ret < 0))
+		pr_err("sendto(): " PRERF, PREAR(-ret));
+
+	prl_notice(6, "sendto(): %zd bytes", ret);
+	return ret;
+}
+
+static void del_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
+{
+	uint16_t byte0, byte1;
+
+	byte0 = (addr >> 0u) & 0xffu;
+	byte1 = (addr >> 8u) & 0xffu;
+	atomic_store(&map[byte0][byte1], 0);
+}
+
+static void set_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr,
+			       uint16_t maps_to)
+{
+	uint16_t byte0, byte1;
+
+	byte0 = (addr >> 0u) & 0xffu;
+	byte1 = (addr >> 8u) & 0xffu;
+	atomic_store(&map[byte0][byte1], maps_to + 1);
+}
+
+static int32_t get_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
+{
+	uint16_t ret, byte0, byte1;
+
+	byte0 = (addr >> 0u) & 0xffu;
+	byte1 = (addr >> 8u) & 0xffu;
+	ret = atomic_load(&map[byte0][byte1]);
+
+	if (ret == 0)
+		/* Unmapped address. */
+		return -ENOENT;
+
+	return (int32_t)(ret - 1);
+}
+
+static int close_udp_session(struct epoll_wrk *thread, struct udp_sess *sess)
+{
+	struct srv_pkt *srv_pkt = &thread->pkt.srv;
+	size_t send_len;
+
+	prl_notice(2, "Closing connection from " PRWIU "...", W_IU(sess));
+
+	if (sess->ipv4_iff != 0)
+		del_ipv4_route_map(thread->state->route_map4, sess->ipv4_iff);
+
+	send_len = srv_pprep(srv_pkt, TSRV_PKT_CLOSE, 0, 0);
+	el_epl_send_to_client(thread, sess, srv_pkt, send_len, 0);
+	return delete_udp_sess4(thread->state, sess);
+}
+
 struct handshake_ctx {
 	char		rej_msg[512];
 	uint8_t		rej_reason;
@@ -1102,22 +1226,6 @@ static int check_client_handshake(struct cli_pkt *cli_pkt, size_t len,
 	return 0;
 }
 
-static __hot ssize_t el_epl_send_to_client(struct epoll_wrk *thread,
-					   struct udp_sess *sess,
-					   const void *buffer, size_t buflen,
-					   int flags)
-{
-	ssize_t ret;
-
-	ret = __sys_sendto(thread->state->udp_fd, buffer, buflen, flags,
-			   (struct sockaddr *)&sess->addr, sizeof(sess->addr));
-	if (unlikely(ret < 0))
-		pr_err("sendto(): " PRERF, PREAR(-ret));
-
-	prl_notice(6, "sendto(): %zd bytes", ret);
-	return ret;
-}
-
 static int el_epl_send_handshake(struct epoll_wrk *thread,
 				 struct udp_sess *sess)
 {
@@ -1151,7 +1259,7 @@ static int _el_epl_handle_new_conn(struct epoll_wrk *thread,
 		/*
 		 * TODO: Handshake failed, drop the client session!
 		 */
-
+		close_udp_session(thread, sess);
 		if (ret == -EBADMSG) {
 			prl_notice(2, "%s", hctx.rej_msg);
 
@@ -1182,6 +1290,7 @@ static int _el_epl_handle_new_conn(struct epoll_wrk *thread,
 		/*
 		 * TODO: Handshake failed, drop the client session!
 		 */
+		close_udp_session(thread, sess);
 
 		/*
 		 * If we get a -EAGAIN, it's just a non-blocking
@@ -1227,40 +1336,6 @@ static int el_epl_handle_new_conn(struct epoll_wrk *thread, uint32_t addr,
 	 */
 	BUG_ON(lookup_udp_sess_map4(thread->state, addr, port) != sess);
 	return _el_epl_handle_new_conn(thread, sess);
-}
-
-static void del_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
-{
-	uint16_t byte0, byte1;
-
-	byte0 = (addr >> 0u) & 0xffu;
-	byte1 = (addr >> 8u) & 0xffu;
-	atomic_store(&map[byte0][byte1], 0);
-}
-
-static void set_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr,
-			       uint16_t maps_to)
-{
-	uint16_t byte0, byte1;
-
-	byte0 = (addr >> 0u) & 0xffu;
-	byte1 = (addr >> 8u) & 0xffu;
-	atomic_store(&map[byte0][byte1], maps_to + 1);
-}
-
-static int32_t get_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
-{
-	uint16_t ret, byte0, byte1;
-
-	byte0 = (addr >> 0u) & 0xffu;
-	byte1 = (addr >> 8u) & 0xffu;
-	ret = atomic_load(&map[byte0][byte1]);
-
-	if (ret == 0)
-		/* Unmapped address. */
-		return -ENOENT;
-
-	return (int32_t)(ret - 1);
 }
 
 static __hot int el_epl_handle_auth_pkt(struct epoll_wrk *thread,
@@ -1329,6 +1404,7 @@ static __hot int el_epl_handle_auth_pkt(struct epoll_wrk *thread,
 		 *
 		 * TODO: Drop the client. Still return 0 after drop.
 		 */
+		close_udp_session(thread, sess);
 		return 0;
 	}
 
@@ -1456,7 +1532,9 @@ static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 		break;
 	case TCLI_PKT_REQSYNC:
 	case TCLI_PKT_SYNC:
+		return 0;
 	case TCLI_PKT_CLOSE:
+		close_udp_session(thread, sess);
 		return 0;
 	}
 
