@@ -1813,6 +1813,7 @@ static void _el_epl_destroy_sess(struct epoll_wrk *thread,
 				 struct udp_sess_map4 *iter)
 	__must_hold(&state->sess_map4_lock)
 {
+	struct udp_sess_map4 *orig_iter = iter;
 	bool need_free = false;
 	struct udp_sess *cur;
 
@@ -1833,6 +1834,7 @@ static void _el_epl_destroy_sess(struct epoll_wrk *thread,
 			iter = iter->next;
 		}
 	} while (iter);
+	orig_iter->next = NULL;
 }
 
 static void el_epl_destroy_sess(struct epoll_wrk *thread,
