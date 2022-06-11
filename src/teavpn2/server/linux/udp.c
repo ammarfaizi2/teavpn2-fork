@@ -1038,7 +1038,7 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 {
 	struct udp_sess_map4 *iter, *prev = NULL;
 	struct udp_sess *cur;
-	unsigned depth = 0;
+	bool need_free = false;
 	int ret = 0;
 
 	mutex_lock(&state->sess_map4_lock);
@@ -1051,8 +1051,8 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 		}
 
 		if (cur == sess) {
-			if (depth > 0) {
-				prev->next = NULL;
+			if (need_free) {
+				prev->next = iter->next;
 				free(iter);
 			} else {
 				iter->sess = NULL;
@@ -1060,7 +1060,7 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 			break;
 		}
 
-		depth++;
+		need_free = true;
 		prev = iter;
 		iter = iter->next;
 	} while (iter);
