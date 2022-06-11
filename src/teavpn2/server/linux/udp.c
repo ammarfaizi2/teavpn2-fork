@@ -1808,6 +1808,46 @@ static noinline __cold void el_epl_join_threads(struct srv_state *state)
 	} while (r);
 }
 
+static void _el_epl_destroy_sess(struct epoll_wrk *thread,
+				 struct udp_sess_map4 *iter)
+	__must_hold(&state->sess_map4_lock)
+{
+	bool need_free = false;
+	struct udp_sess *cur;
+
+	do {
+		cur = iter->sess;
+		if (!cur)
+			break;
+
+		el_epl_close_udp_sess(thread, cur);
+		if (need_free) {
+			struct udp_sess_map4 *tmp = iter;
+			iter = iter->next;
+			free(tmp);
+		} else {
+			need_free = true;
+			iter = iter->next;
+		}
+	} while (iter);
+}
+
+static void el_epl_destroy_sess(struct epoll_wrk *thread,
+				struct srv_state *state)
+	__acquires(&state->sess_map4_lock)
+	__releases(&state->sess_map4_lock)
+{
+	struct udp_sess_map4 (*sess_map4)[0x100] = state->sess_map4;
+	size_t i, j;
+
+	mutex_lock(&state->sess_map4_lock);
+	for (i = 0; i < 0x100; i++) {
+		for (j = 0; j < 0x100; j++)
+			_el_epl_destroy_sess(thread, &sess_map4[i][j]);
+	}
+	mutex_unlock(&state->sess_map4_lock);
+}
+
 static __cold void destroy_epoll_threads(struct srv_state *state)
 {
 	struct epoll_wrk *threads = state->epoll_threads;
@@ -1817,6 +1857,7 @@ static __cold void destroy_epoll_threads(struct srv_state *state)
 		return;
 
 	el_epl_join_threads(state);
+	el_epl_destroy_sess(&threads[0], state);
 
 	nn = (size_t)state->cfg->sys.thread_num;
 	for (i = 0; i < nn; i++) {
