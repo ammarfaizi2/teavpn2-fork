@@ -1820,7 +1820,9 @@ static void _el_epl_destroy_sess(struct epoll_wrk *thread,
 		if (!cur)
 			break;
 
+		mutex_unlock(&state->sess_map4_lock);
 		el_epl_close_udp_sess(thread, cur);
+		mutex_lock(&state->sess_map4_lock);
 		if (need_free) {
 			struct udp_sess_map4 *tmp = iter;
 			iter = iter->next;
