@@ -1809,6 +1809,7 @@ static noinline __cold void el_epl_join_threads(struct srv_state *state)
 }
 
 static void _el_epl_destroy_sess(struct epoll_wrk *thread,
+				 struct srv_state *state,
 				 struct udp_sess_map4 *iter)
 	__must_hold(&state->sess_map4_lock)
 {
@@ -1845,7 +1846,7 @@ static void el_epl_destroy_sess(struct epoll_wrk *thread,
 	mutex_lock(&state->sess_map4_lock);
 	for (i = 0; i < 0x100; i++) {
 		for (j = 0; j < 0x100; j++)
-			_el_epl_destroy_sess(thread, &sess_map4[i][j]);
+			_el_epl_destroy_sess(thread, state, &sess_map4[i][j]);
 	}
 	mutex_unlock(&state->sess_map4_lock);
 }
