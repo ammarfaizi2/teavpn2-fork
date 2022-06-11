@@ -1053,10 +1053,8 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 		if (cur == sess) {
 			if (depth > 0) {
 				prev->next = NULL;
-				puts("del case 2");
 				free(iter);
 			} else {
-				puts("del case 1");
 				iter->sess = NULL;
 			}
 			break;
@@ -1140,7 +1138,8 @@ static int32_t get_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
 	return (int32_t)(ret - 1);
 }
 
-static int close_udp_session(struct epoll_wrk *thread, struct udp_sess *sess)
+static int el_epl_close_udp_sess(struct epoll_wrk *thread,
+				 struct udp_sess *sess)
 {
 	struct srv_pkt *srv_pkt = &thread->pkt.srv;
 	size_t send_len;
@@ -1259,7 +1258,7 @@ static int _el_epl_handle_new_conn(struct epoll_wrk *thread,
 		/*
 		 * TODO: Handshake failed, drop the client session!
 		 */
-		close_udp_session(thread, sess);
+		el_epl_close_udp_sess(thread, sess);
 		if (ret == -EBADMSG) {
 			prl_notice(2, "%s", hctx.rej_msg);
 
@@ -1290,7 +1289,7 @@ static int _el_epl_handle_new_conn(struct epoll_wrk *thread,
 		/*
 		 * TODO: Handshake failed, drop the client session!
 		 */
-		close_udp_session(thread, sess);
+		el_epl_close_udp_sess(thread, sess);
 
 		/*
 		 * If we get a -EAGAIN, it's just a non-blocking
@@ -1404,7 +1403,7 @@ static __hot int el_epl_handle_auth_pkt(struct epoll_wrk *thread,
 		 *
 		 * TODO: Drop the client. Still return 0 after drop.
 		 */
-		close_udp_session(thread, sess);
+		el_epl_close_udp_sess(thread, sess);
 		return 0;
 	}
 
@@ -1534,7 +1533,7 @@ static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 	case TCLI_PKT_SYNC:
 		return 0;
 	case TCLI_PKT_CLOSE:
-		close_udp_session(thread, sess);
+		el_epl_close_udp_sess(thread, sess);
 		return 0;
 	}
 
