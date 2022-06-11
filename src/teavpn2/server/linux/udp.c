@@ -1051,10 +1051,13 @@ static int remove_udp_sess_from_bucket(struct srv_state *state,
 		}
 
 		if (cur == sess) {
-			iter->sess = NULL;
 			if (depth > 0) {
 				prev->next = NULL;
-				free(cur);
+				puts("del case 2");
+				free(iter);
+			} else {
+				puts("del case 1");
+				iter->sess = NULL;
 			}
 			break;
 		}
