@@ -1316,14 +1316,13 @@ static int32_t get_ipv4_route_map(atomic_u16 (*map)[0x100], uint32_t addr)
 	return (int32_t)(ret - 1);
 }
 
-static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
-	__acquires(&state->sess_stk_lock)
-	__releases(&state->sess_stk_lock)
+static int __delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
+	__must_hold(&state->sess_stk_lock)
 {
 	uint16_t idx;
 	int ret;
 
-	mutex_lock(&state->sess_stk_lock);
+	lockdep_assert_held(&state->sess_stk_lock);
 	ret = remove_udp_sess_from_bucket(state, sess);
 	if (unlikely(ret)) {
 		mutex_unlock(&state->sess_stk_lock);
@@ -1334,6 +1333,16 @@ static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
 	del_on_sess(state, idx);
 	BUG_ON(bt_stack_push(&state->sess_stk, idx) == -1);
 	reset_session(sess, idx);
+	return ret;
+}
+
+static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
+	__acquires(&state->sess_stk_lock)
+	__releases(&state->sess_stk_lock)
+{
+	int ret;
+	mutex_lock(&state->sess_stk_lock);
+	ret = __delete_udp_sess4(state, sess);
 	mutex_unlock(&state->sess_stk_lock);
 	return ret;
 }
@@ -1361,21 +1370,25 @@ static int el_epl_close_udp_sess(struct epoll_wrk *thread,
 
 static int el_epl_close_udp_sess_zr(struct srv_state *state,
 				    struct udp_sess *sess)
+	__must_hold(&state->sess_stk_lock)
 {
 	struct srv_pkt pkt;
 	ssize_t ret;
-	size_t len = srv_pprep(&pkt, TSRV_PKT_CLOSE, 0, 0);
+	size_t len;
+
+	lockdep_assert_held(&state->sess_stk_lock);
 
 	if (sess->ipv4_iff != 0)
 		del_ipv4_route_map(state->route_map4, sess->ipv4_iff);
 
+	len = srv_pprep(&pkt, TSRV_PKT_CLOSE, 0, 0);
 	ret = __sys_sendto(state->udp_fd, &pkt, len, MSG_DONTWAIT,
 			   (struct sockaddr *)&sess->addr, sizeof(sess->addr));
 	if (unlikely(ret < 0))
 		pr_err("sendto(): " PRERF, PREAR(-ret));
 
 	prl_notice(6, "sendto(): %zd bytes", ret);
-	return delete_udp_sess4(state, sess);
+	return __delete_udp_sess4(state, sess);
 }
 
 struct handshake_ctx {
