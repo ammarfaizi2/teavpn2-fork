@@ -135,46 +135,46 @@ struct srv_state {
 	/*
 	 * To determine whether the event loop should stop.
 	 */
-	volatile bool			stop;
+	volatile bool				stop;
 
 	/*
 	 * Are we in an emergency situation?
 	 * (currently unused)
 	 */
-	volatile bool			in_emergency;
+	volatile bool				in_emergency;
 
 	/*
 	 * To determine whether we should remove the virtual
 	 * network configuration on cleanup.
 	 */
-	bool				need_remove_iff;
+	bool					need_remove_iff;
 
 	/*
 	 * The event loop type. Currently, the only valid
 	 * values are EL_EPOLL and EL_IO_URING.
 	 */
-	uint8_t				evt_loop_type;
+	uint8_t					evt_loop_type;
 
 	/*
 	 * The number of online worker threads.
 	 */
-	_Atomic(uint16_t)		nr_on_threads;
+	_Atomic(uint16_t)			nr_on_threads;
 
 	/*
 	 * Number of online sessions.
 	 */
-	_Atomic(uint16_t)		nr_on_sess;
+	_Atomic(uint16_t)			nr_on_sess;
 
 	/*
 	 * A pointer to the struct srv_cfg that contains
 	 * TeaVPN2 server configuration.
 	 */
-	struct srv_cfg			*cfg;
+	struct srv_cfg				*cfg;
 
 	/*
 	 * Array of UDP sessions.
 	 */
-	struct udp_sess			*sess;
+	struct udp_sess				*sess;
 
 	union {
 		struct epoll_wrk		*epoll_threads;
@@ -183,19 +183,19 @@ struct srv_state {
 	/*
 	 * Session mapping for IPv4 clients.
 	 */
-	struct udp_sess_map4		(*sess_map4)[0x100];
-	struct tmutex			sess_map4_lock;
+	struct udp_sess_map4			(*sess_map4)[0x100];
+	struct tmutex				sess_map4_lock;
 
 	/*
 	 * A small hash table for route lookup.
 	 */
-	atomic_u16			(*route_map4)[0x100];
+	atomic_u16				(*route_map4)[0x100];
 
 	/*
 	 * Stack to get unused UDP session index in O(1).
 	 */
-	struct bt_stack			sess_stk;
-	struct tmutex			sess_stk_lock;
+	struct bt_stack				sess_stk;
+	struct tmutex				sess_stk_lock;
 
 	/*
 	 * The number of elements in the @tun_fds array.
@@ -203,22 +203,22 @@ struct srv_state {
 	 * The number of elements in @tun_fds is currently
 	 * the same with @cfg->sys.thread_num.
 	 */
-	uint16_t			nr_tun_fds;
+	uint16_t				nr_tun_fds;
 
 	/*
 	 * Received signal from the signal handler.
 	 */
-	int				sig;
+	int					sig;
 
 	/*
 	 * The file descriptor of the server UDP socket.
 	 */
-	int				udp_fd;
+	int					udp_fd;
 
 	/*
 	 * The array of file descriptors of the TUN interface.
 	 */
-	int				tun_fds[];
+	int					tun_fds[];
 };
 
 #define W_IP(CLIENT) 	((CLIENT)->str_src_addr), ((CLIENT)->src_port)
