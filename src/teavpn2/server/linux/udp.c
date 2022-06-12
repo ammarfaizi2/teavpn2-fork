@@ -889,25 +889,35 @@ static __cold int el_epl_init_epoll(struct srv_state *state)
 	return 0;
 }
 
-static __cold void _el_epl_zombie_reaper(struct srv_state *state)
+static __cold unsigned int _el_epl_zombie_reaper(struct srv_state *state)
+	__acquires(&state->sess_stk_lock)
+	__releases(&state->sess_stk_lock)
 {
+	static unsigned int sleep_secs = 5;
 
+	mutex_lock(&state->sess_stk_lock);
+	mutex_unlock(&state->sess_stk_lock);
+
+	return sleep_secs;
 }
 
 static __cold void *el_epl_zombie_reaper(void *state_p)
 {
 	struct srv_state *state = state_p;
+	unsigned int ret;
 
 	nice(40);
-	while (!state->stop)
-		_el_epl_zombie_reaper(state);
+	while (!state->stop) {
+		ret = _el_epl_zombie_reaper(state);
+		sleep(ret);
+	}
 
 	return NULL;
 }
 
 static __cold int el_epl_spawn_zombie_reaper_thread(struct srv_state *state)
 {
-	struct sched_param sp = { .sched_priority = 0 };
+	static const struct sched_param sp = { .sched_priority = 0 };
 	int ret;
 
 	ret = pthread_create(&state->zr_thread, NULL, el_epl_zombie_reaper,
@@ -916,6 +926,7 @@ static __cold int el_epl_spawn_zombie_reaper_thread(struct srv_state *state)
 		pr_err("pthread_create(): " PRERF, PREAR(ret));
 		return -ret;
 	}
+	state->zr_is_on = true;
 
 	/*
 	 * Ignore all errors from the below calls.
@@ -929,7 +940,6 @@ static __cold int el_epl_spawn_zombie_reaper_thread(struct srv_state *state)
 		pr_err("pthread_setname_np(): " PRERF, PREAR(ret));
 		ret = 0;
 	}
-	state->zr_is_on = true;
 	return ret;
 }
 
