@@ -416,6 +416,7 @@ static __cold int init_state(struct srv_state **state_p, struct srv_cfg *cfg)
 	size_t i;
 	int ret;
 
+	lockdep_assert_held(&g_state_mutex);
 	if (cfg->sys.thread_num < 1) {
 		pr_error("cfg->sys.thread_num must be at least 1, %hhu given",
 			 cfg->sys.thread_num);
@@ -1959,6 +1960,7 @@ static void _el_epl_destroy_sess(struct epoll_wrk *thread,
 	bool need_free = false;
 	struct udp_sess *cur;
 
+	lockdep_assert_held(&thread->state->sess_map4_lock);
 	do {
 		cur = iter->sess;
 		if (!cur)
@@ -2118,6 +2120,7 @@ static __cold void destroy_list_on_sess(struct srv_state *state)
 static __cold void destroy_state(struct srv_state *state)
 	__must_hold(&g_state_mutex)
 {
+	lockdep_assert_held(&g_state_mutex);
 	g_state = NULL;
 	destroy_sess(state);
 	destroy_sess_map4(state);
