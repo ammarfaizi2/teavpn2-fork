@@ -1134,6 +1134,13 @@ static void del_on_sess(struct srv_state *state, uint16_t idx)
 	}
 }
 
+static void update_last_act(struct udp_sess *sess)
+{
+	struct timeval tt;
+	gettimeofday(&tt, NULL);
+	sess->last_act = tt.tv_sec;
+}
+
 static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 					 uint16_t port,
 					 struct sockaddr_in *saddr)
@@ -1170,6 +1177,7 @@ static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 	ret->src_port = port;
 	ret->addr = *saddr;
 	ret->is_connected = true;
+	update_last_act(ret);
 	addr = htonl(addr);
 	WARN_ON(!inet_ntop(AF_INET, &addr, ret->str_src_addr,
 			   sizeof(ret->str_src_addr)));
@@ -1707,9 +1715,12 @@ static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 		break;
 	case TCLI_PKT_TUN_DATA:
 		ret = el_epl_handle_tun_pkt(thread, sess);
+		if (unlikely((sess->loop_c++ % 256) == 0))
+			update_last_act(sess);
 		break;
 	case TCLI_PKT_REQSYNC:
 	case TCLI_PKT_SYNC:
+		update_last_act(sess);
 		return 0;
 	case TCLI_PKT_CLOSE:
 		el_epl_close_udp_sess(thread, sess);
