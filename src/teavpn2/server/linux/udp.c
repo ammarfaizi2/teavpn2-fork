@@ -1331,7 +1331,7 @@ static int el_epl_close_udp_sess_zr(struct srv_state *state,
 		pr_err("sendto(): " PRERF, PREAR(-ret));
 
 	prl_notice(6, "sendto(): %zd bytes", ret);
-	return delete_udp_sess4(thread->state, sess);
+	return delete_udp_sess4(state, sess);
 }
 
 struct handshake_ctx {
