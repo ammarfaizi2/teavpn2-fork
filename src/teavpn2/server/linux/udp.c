@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <stdatomic.h>
 #include <sys/epoll.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <teavpn2/mutex.h>
 #include <teavpn2/stack.h>
@@ -908,27 +909,53 @@ static __cold int el_epl_init_epoll(struct srv_state *state)
 	return 0;
 }
 
-static __cold unsigned int _el_epl_zombie_reaper(struct srv_state *state)
-	__acquires(&state->sess_stk_lock)
-	__releases(&state->sess_stk_lock)
+static bool grace_period_check_and_touch(struct udp_sess *sess, time_t now)
 {
-	static unsigned int sleep_secs = 5;
+	time_t diff;
 
-	mutex_lock(&state->sess_stk_lock);
-	mutex_unlock(&state->sess_stk_lock);
+	diff = now - sess->last_act;
+	if (diff > 10)
+		return false;
 
-	return sleep_secs;
+	return true;
 }
 
-static __cold void *el_epl_zombie_reaper(void *state_p)
+static int el_epl_close_udp_sess_zr(struct srv_state *state,
+				    struct udp_sess *sess);
+
+static __hot void _el_epl_zombie_reaper(struct srv_state *state)
+	__must_hold(&state->sess_stk_lock)
+{	
+	uint16_t *arr, nr, i;
+	struct timeval tt;
+	time_t now;
+
+	lockdep_assert_held(&state->sess_stk_lock);
+
+	gettimeofday(&tt, NULL);
+	now = tt.tv_sec;
+	arr = state->list_on_sess;
+	nr = state->nr_list_on_sess;
+	for (i = 0; i < nr; i++) {
+		struct udp_sess *sess = &state->sess[arr[i]];
+
+		if (grace_period_check_and_touch(sess, now))
+			continue;
+
+		el_epl_close_udp_sess_zr(state, sess);
+	}
+}
+
+static void *el_epl_zombie_reaper(void *state_p)
 {
 	struct srv_state *state = state_p;
-	unsigned int ret;
 
 	nice(40);
 	while (!state->stop) {
-		ret = _el_epl_zombie_reaper(state);
-		sleep(ret);
+		mutex_lock(&state->sess_stk_lock);
+		_el_epl_zombie_reaper(state);
+		mutex_unlock(&state->sess_stk_lock);
+		sleep(1);
 	}
 
 	return NULL;
@@ -1278,6 +1305,25 @@ static int el_epl_close_udp_sess(struct epoll_wrk *thread,
 {
 	_el_epl_close_udp_sess(thread, sess);
 	return delete_udp_sess4(thread->state, sess);
+}
+
+static int el_epl_close_udp_sess_zr(struct srv_state *state,
+				    struct udp_sess *sess)
+{
+	struct srv_pkt pkt;
+	ssize_t ret;
+	size_t len = srv_pprep(&pkt, TSRV_PKT_CLOSE, 0, 0);
+
+	if (sess->ipv4_iff != 0)
+		del_ipv4_route_map(state->route_map4, sess->ipv4_iff);
+
+	ret = __sys_sendto(state->udp_fd, &pkt, len, MSG_DONTWAIT,
+			   (struct sockaddr *)&sess->addr, sizeof(sess->addr));
+	if (unlikely(ret < 0))
+		pr_err("sendto(): " PRERF, PREAR(-ret));
+
+	prl_notice(6, "sendto(): %zd bytes", ret);
+	return (int)ret;
 }
 
 struct handshake_ctx {
@@ -1922,6 +1968,7 @@ static noinline __cold void el_epl_join_threads(struct srv_state *state)
 		int ret;
 
 		prl_notice(2, "Waiting for zombie reaper thread to exit...");
+		pthread_kill(state->zr_thread, SIGTERM);
 		ret = pthread_join(state->zr_thread, NULL);
 		if (unlikely(ret))
 			pr_err("pthread_join(): " PRERF, PREAR(-ret));
