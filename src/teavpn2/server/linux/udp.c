@@ -193,6 +193,12 @@ struct srv_state {
 	atomic_u16				(*route_map4)[0x100];
 
 	/*
+	 * List of online sessions (for zombie reaper).
+	 */
+	uint16_t				*list_on_sess;
+	uint16_t				nr_list_on_sess;
+
+	/*
 	 * Stack to get unused UDP session index in O(1).
 	 */
 	struct bt_stack				sess_stk;
@@ -736,6 +742,18 @@ static __cold int init_session_map_ipv4(struct srv_state *state)
 	return 0;
 }
 
+static __cold int init_list_on_sess(struct srv_state *state)
+{
+	uint16_t *los;
+
+	los = alloc_pinned_faulted(state->cfg->sock.max_conn * sizeof(*los));
+	if (!los)
+		return -ENOMEM;
+
+	state->list_on_sess = los;
+	state->nr_list_on_sess = 0;
+	return 0;
+}
 
 static __cold int init_route_map_ipv4(struct srv_state *state)
 {
@@ -2056,6 +2074,12 @@ static __cold void destroy_tun_fds(struct srv_state *state)
 	}
 }
 
+static __cold void destroy_list_on_sess(struct srv_state *state)
+{
+	free_pinned(state->list_on_sess,
+		    state->cfg->sock.max_conn * sizeof(*state->list_on_sess));
+}
+
 static __cold void destroy_state(struct srv_state *state)
 	__must_hold(&g_state_mutex)
 {
@@ -2065,6 +2089,7 @@ static __cold void destroy_state(struct srv_state *state)
 	destroy_route_map4(state);
 	destroy_sess_stack(state);
 	destroy_tun_fds(state);
+	destroy_list_on_sess(state);
 	free_pinned(state, sizeof(*state) + sizeof(int) * state->nr_tun_fds);
 }
 
@@ -2097,6 +2122,9 @@ int teavpn2_server_udp_run(struct srv_cfg *cfg)
 	if (unlikely(ret))
 		goto out_del_sig;
 	ret = init_session_map_ipv4(state);
+	if (unlikely(ret))
+		goto out_del_sig;
+	ret = init_list_on_sess(state);
 	if (unlikely(ret))
 		goto out_del_sig;
 	ret = init_route_map_ipv4(state);
