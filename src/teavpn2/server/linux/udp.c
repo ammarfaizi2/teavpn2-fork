@@ -1437,6 +1437,11 @@ static __hot int el_epl_handle_auth_pkt(struct epoll_wrk *thread,
 	ipv4_iff = ntohl(inet_addr(auth_res->iff.ipv4));
 	sess->ipv4_iff = ipv4_iff;
 	sess->is_authenticated = true;
+
+	memcpy(sess->username, auth.username, sizeof(auth.username));
+	static_assert(sizeof(auth.username) == sizeof(sess->username),
+		      "sizeof(auth.username) == sizeof(sess->username)");
+
 	set_ipv4_route_map(thread->state->route_map4, ipv4_iff, sess->idx);
 	prl_notice(2, "\"%s\" has been connected with private IPv4 %s",
 		   auth.username, auth_res->iff.ipv4);
