@@ -4,6 +4,7 @@
  */
 #include <time.h>
 #include <unistd.h>
+#include <sched.h>
 #include <signal.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -198,6 +199,12 @@ struct srv_state {
 	struct tmutex				sess_stk_lock;
 
 	/*
+	 * Zombie reaper thread.
+	 */
+	pthread_t				zr_thread;
+	bool					zr_is_on;
+
+	/*
 	 * The number of elements in the @tun_fds array.
 	 *
 	 * The number of elements in @tun_fds is currently
@@ -280,19 +287,19 @@ static __always_inline size_t srv_pprep_reqsync(struct srv_pkt *srv_pkt)
 	return srv_pprep(srv_pkt, TSRV_PKT_REQSYNC, 0, 0);
 }
 
-__maybe_unused static inline int PTR_ERR(const void *ptr)
+static inline int PTR_ERR(const void *ptr)
 {
-	return (int) (intptr_t) ptr;
+	return (int)(intptr_t)ptr;
 }
 
-__maybe_unused static inline void *ERR_PTR(int err)
+static inline void *ERR_PTR(int err)
 {
-	return (void *) (intptr_t) err;
+	return (void *)(intptr_t)err;
 }
 
-__maybe_unused static inline bool IS_ERR(const void *ptr)
+static inline bool IS_ERR(const void *ptr)
 {
-	return unlikely((uintptr_t) ptr >= (uintptr_t) -4095UL);
+	return unlikely((uintptr_t)ptr >= (uintptr_t)-4095UL);
 }
 
 static void signal_handler(int sig)
@@ -314,13 +321,16 @@ static void signal_handler(int sig)
 
 static void memzero_explicit(void *addr, size_t len)
 {
+	__asm__ volatile ("":"+r"(addr)::"memory");
 	memset(addr, 0, len);
 	__asm__ volatile ("":"+r"(addr)::"memory");
 }
 
+#define USE_ASAN 1
+
 static void *alloc_pinned(size_t len)
 {
-#if 0
+#if !USE_ASAN
 	void *r;
 	int err;
 
@@ -341,8 +351,9 @@ static void *alloc_pinned(size_t len)
 		return NULL;
 	}
 	return r;
-#endif
+#else
 	return calloc(1, len);
+#endif
 }
 
 static void *alloc_pinned_faulted(size_t len)
@@ -361,12 +372,13 @@ static void free_pinned(void *p, size_t len)
 {
 	if (unlikely(!p))
 		return;
-#if 0
+#if !USE_ASAN
 	len = (len + 4095ul) & -4096ul;
 	munmap(p, len);
-#endif
+#else
 	free(p);
 	(void)len;
+#endif
 }
 
 static __cold int select_event_loop(struct srv_state *state,
@@ -877,6 +889,50 @@ static __cold int el_epl_init_epoll(struct srv_state *state)
 	return 0;
 }
 
+static __cold void _el_epl_zombie_reaper(struct srv_state *state)
+{
+
+}
+
+static __cold void *el_epl_zombie_reaper(void *state_p)
+{
+	struct srv_state *state = state_p;
+
+	nice(40);
+	while (!state->stop)
+		_el_epl_zombie_reaper(state);
+
+	return NULL;
+}
+
+static __cold int el_epl_spawn_zombie_reaper_thread(struct srv_state *state)
+{
+	struct sched_param sp = { .sched_priority = 0 };
+	int ret;
+
+	ret = pthread_create(&state->zr_thread, NULL, el_epl_zombie_reaper,
+			     state);
+	if (unlikely(ret)) {
+		pr_err("pthread_create(): " PRERF, PREAR(ret));
+		return -ret;
+	}
+
+	/*
+	 * Ignore all errors from the below calls.
+	 */
+	ret = pthread_setschedparam(state->zr_thread, SCHED_IDLE, &sp);
+	if (unlikely(ret))
+		pr_err("pthread_setschedparam(): " PRERF, PREAR(ret));
+
+	ret = pthread_setname_np(state->zr_thread, "zombie-reaper");
+	if (unlikely(ret)) {
+		pr_err("pthread_setname_np(): " PRERF, PREAR(ret));
+		ret = 0;
+	}
+	state->zr_is_on = true;
+	return ret;
+}
+
 static noinline __cold void el_epl_wait_threads(struct epoll_wrk *thread)
 {
 	static _Atomic(bool) release_sub_thread = false;
@@ -1260,9 +1316,11 @@ static int _el_epl_handle_new_conn(struct epoll_wrk *thread,
 
 	ret = check_client_handshake(&pkt->cli, pkt->len, &hctx, sess);
 	if (ret) {
-		/*
-		 * TODO: Handshake failed, drop the client session!
-		 */
+		size_t len = srv_pprep_handshake_reject(&pkt->srv,
+							hctx.rej_reason,
+							hctx.rej_msg);
+
+		el_epl_send_to_client(thread, sess, pkt, len, MSG_DONTWAIT);
 		el_epl_close_udp_sess(thread, sess);
 		if (ret == -EBADMSG) {
 			prl_notice(2, "%s", hctx.rej_msg);
@@ -1794,6 +1852,18 @@ static noinline __cold void el_epl_join_threads(struct srv_state *state)
 	uint16_t i, r;
 	int err;
 
+
+	if (state->zr_is_on) {
+		int ret;
+
+		prl_notice(2, "Waiting for zombie reaper thread to exit...");
+		ret = pthread_join(state->zr_thread, NULL);
+		if (unlikely(ret))
+			pr_err("pthread_join(): " PRERF, PREAR(-ret));
+		prl_notice(2, "Zombie reaper has exited.");
+	}
+
+
 	r = atomic_load(nrp);
 	if (!r)
 		return;
@@ -1819,9 +1889,8 @@ static noinline __cold void el_epl_join_threads(struct srv_state *state)
 }
 
 static void _el_epl_destroy_sess(struct epoll_wrk *thread,
-				 struct srv_state *state,
 				 struct udp_sess_map4 *iter)
-	__must_hold(&state->sess_map4_lock)
+	__must_hold(&thread->state->sess_map4_lock)
 {
 	struct udp_sess_map4 *orig_iter = iter;
 	bool need_free = false;
@@ -1856,7 +1925,7 @@ static void el_epl_destroy_sess(struct epoll_wrk *thread,
 	mutex_lock(&state->sess_map4_lock);
 	for (i = 0; i < 0x100; i++) {
 		for (j = 0; j < 0x100; j++)
-			_el_epl_destroy_sess(thread, state, &sess_map4[i][j]);
+			_el_epl_destroy_sess(thread, &sess_map4[i][j]);
 	}
 	mutex_unlock(&state->sess_map4_lock);
 }
@@ -1895,6 +1964,9 @@ static int el_epl_run_server(struct srv_state *state)
 	if (unlikely(ret))
 		return ret;
 	ret = el_epl_init_epoll(state);
+	if (unlikely(ret))
+		goto out;
+	ret = el_epl_spawn_zombie_reaper_thread(state);
 	if (unlikely(ret))
 		goto out;
 	ret = el_epl_spawn_threads(state);
