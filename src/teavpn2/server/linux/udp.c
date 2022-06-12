@@ -1119,6 +1119,7 @@ static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 
 	mutex_lock(&state->sess_stk_lock);
 	stk_ret = bt_stack_pop(&state->sess_stk);
+	add_on_sess(state, idx);
 	mutex_unlock(&state->sess_stk_lock);
 	if (unlikely(stk_ret == -1)) {
 		pr_err("Client session is full, cannot accept more client!");
@@ -1131,11 +1132,11 @@ static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 	if (unlikely(err)) {
 		mutex_lock(&state->sess_stk_lock);
 		BUG_ON(bt_stack_push(&state->sess_stk, idx) == -1);
+		del_on_sess(state, idx);
 		mutex_unlock(&state->sess_stk_lock);
 		return ERR_PTR(err);
 	}
 
-	add_on_sess(state, idx);
 	ret->src_addr = addr;
 	ret->src_port = port;
 	ret->addr = *saddr;
