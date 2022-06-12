@@ -8,8 +8,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <teavpn2/common.h>
 
+#define __MUTEX_LEAK_ASSERT 1
 #ifndef __MUTEX_LEAK_ASSERT
 #define __MUTEX_LEAK_ASSERT 0
 #endif
@@ -23,6 +25,7 @@ struct tmutex {
 		void			*__leak_assert;
 		uintptr_t		need_destroy;
 	};
+	_Atomic(bool)			lock_is_held;
 #else
 	bool				need_destroy;
 #endif
@@ -36,6 +39,14 @@ struct tmutex {
 
 #define DEFINE_MUTEX(V) struct tmutex V = MUTEX_INITIALIZER
 
+static __always_inline void lockdep_assert_held(struct tmutex *m)
+{
+#if __MUTEX_LEAK_ASSERT
+	BUG_ON(!atomic_load(&m->lock_is_held));
+#else
+	(void)m;
+#endif
+}
 
 static __always_inline int mutex_init(struct tmutex *m,
 				      const pthread_mutexattr_t *attr)
@@ -51,6 +62,7 @@ static __always_inline int mutex_init(struct tmutex *m,
 #if __MUTEX_LEAK_ASSERT
 	m->__leak_assert = malloc(1);
 	BUG_ON(!m->__leak_assert);
+	atomic_store(&m->lock_is_held, true);
 #else
 	m->need_destroy = true;
 #endif
@@ -60,17 +72,30 @@ static __always_inline int mutex_init(struct tmutex *m,
 
 static __always_inline int mutex_lock(struct tmutex *m)
 {
-	return pthread_mutex_lock(&m->mutex);
+	int ret = pthread_mutex_lock(&m->mutex);
+#if __MUTEX_LEAK_ASSERT
+	atomic_store(&m->lock_is_held, true);
+#endif
+	return ret;
 }
 
 static __always_inline int mutex_unlock(struct tmutex *m)
 {
-	return pthread_mutex_unlock(&m->mutex);
+	int ret = pthread_mutex_unlock(&m->mutex);
+#if __MUTEX_LEAK_ASSERT
+	atomic_store(&m->lock_is_held, false);
+#endif
+	return ret;
 }
 
 static __always_inline int mutex_trylock(struct tmutex *m)
 {
-	return pthread_mutex_trylock(&m->mutex);
+	int ret = pthread_mutex_trylock(&m->mutex);
+#if __MUTEX_LEAK_ASSERT
+	if (!ret)
+		atomic_store(&m->lock_is_held, true);
+#endif
+	return ret;
 }
 
 static __always_inline int mutex_destroy(struct tmutex *m)
