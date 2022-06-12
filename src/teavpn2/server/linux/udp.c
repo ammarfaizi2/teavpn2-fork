@@ -925,7 +925,7 @@ static int el_epl_close_udp_sess_zr(struct srv_state *state,
 
 static __hot void _el_epl_zombie_reaper(struct srv_state *state)
 	__must_hold(&state->sess_stk_lock)
-{	
+{
 	uint16_t *arr, nr, i;
 	struct timeval tt;
 	time_t now;
