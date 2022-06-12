@@ -40,9 +40,10 @@ struct tmutex {
 #define DEFINE_MUTEX(V) struct tmutex V = MUTEX_INITIALIZER
 
 #if __MUTEX_LEAK_ASSERT
-#define lockdep_assert_held(m)				\
-	do {						\
-		BUG_ON(!atomic_load(&m->lock_is_held));	\
+#define lockdep_assert_held(m)					\
+	do {							\
+		struct tmutex *__m = (m);			\
+		BUG_ON(!atomic_load(&__m->lock_is_held));	\
 	} while (0)
 #else
 #define lockdep_assert_held(m) do { } while (0)
