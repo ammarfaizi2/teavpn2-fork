@@ -39,14 +39,14 @@ struct tmutex {
 
 #define DEFINE_MUTEX(V) struct tmutex V = MUTEX_INITIALIZER
 
-static __always_inline void lockdep_assert_held(struct tmutex *m)
-{
 #if __MUTEX_LEAK_ASSERT
-	BUG_ON(!atomic_load(&m->lock_is_held));
+#define lockdep_assert_held(m)				\
+	do {						\
+		BUG_ON(!atomic_load(&m->lock_is_held));	\
+	} while (0)
 #else
-	(void)m;
+#define lockdep_assert_held(m) do { } while (0)
 #endif
-}
 
 static __always_inline int mutex_init(struct tmutex *m,
 				      const pthread_mutexattr_t *attr)
