@@ -21,19 +21,19 @@
 #include <teavpn2/net/linux/iface.h>
 #include <teavpn2/server/linux/udp.h>
 
-#define __scalar_type_to_expr_cases(type)				\
-		unsigned type:	(unsigned type)0,			\
+#define __scalar_type_to_expr_cases(type)		\
+		unsigned type:	(unsigned type)0,	\
 		signed type:	(signed type)0
 
-#define __unqual_scalar_typeof(x) typeof(				\
-		_Generic((x),						\
-			 char:	(char)0,				\
-			 __scalar_type_to_expr_cases(char),		\
-			 __scalar_type_to_expr_cases(short),		\
-			 __scalar_type_to_expr_cases(int),		\
-			 __scalar_type_to_expr_cases(long),		\
-			 __scalar_type_to_expr_cases(long long),	\
-			 default: (x)))
+#define __unqual_scalar_typeof(x) __typeof__(			\
+	_Generic((x),						\
+		 char:	(char)0,				\
+		 __scalar_type_to_expr_cases(char),		\
+		 __scalar_type_to_expr_cases(short),		\
+		 __scalar_type_to_expr_cases(int),		\
+		 __scalar_type_to_expr_cases(long),		\
+		 __scalar_type_to_expr_cases(long long),	\
+		 default: (x)))
 
 /*
  * Use __READ_ONCE() instead of READ_ONCE() if you do not require any
@@ -45,21 +45,21 @@
 
 #define compiletime_assert_rwonce_type(x)
 
-#define READ_ONCE(x)							\
-({									\
-	compiletime_assert_rwonce_type(x);				\
-	__READ_ONCE(x);							\
+#define READ_ONCE(x)				\
+({						\
+	compiletime_assert_rwonce_type(x);	\
+	__READ_ONCE(x);				\
 })
 
-#define __WRITE_ONCE(x, val)						\
-do {									\
-	*(volatile typeof(x) *)&(x) = (val);				\
+#define __WRITE_ONCE(x, val)			\
+do {						\
+	*(volatile typeof(x) *)&(x) = (val);	\
 } while (0)
 
-#define WRITE_ONCE(x, val)						\
-do {									\
-	compiletime_assert_rwonce_type(x);				\
-	__WRITE_ONCE(x, val);						\
+#define WRITE_ONCE(x, val)			\
+do {						\
+	compiletime_assert_rwonce_type(x);	\
+	__WRITE_ONCE(x, val);			\
 } while (0)
 
 
@@ -951,14 +951,58 @@ static __cold int el_epl_init_epoll(struct srv_state *state)
 	return 0;
 }
 
-static bool grace_period_check_and_touch(struct udp_sess *sess, time_t now)
+static int _send_req_sync(struct srv_state *state, struct udp_sess *sess)
 {
+	struct srv_pkt pkt;
+	size_t len;
+	ssize_t ret;
+
+	len = srv_pprep_reqsync(&pkt);
+	ret = __sys_sendto(state->udp_fd, &pkt, len, MSG_DONTWAIT,
+			   (struct sockaddr *)&sess->addr, sizeof(sess->addr));
+	if (unlikely(ret < 0))
+		pr_err("sendto(): " PRERF, PREAR(-ret));
+
+	prl_notice(6, "sendto(): %zd bytes", ret);
+	return 0;
+}
+
+static int send_req_sync(struct srv_state *state, struct udp_sess *sess,
+			 unsigned nr_sync)
+{
+	unsigned i;
+
+	for (i = 0; i < nr_sync; i++)
+		_send_req_sync(state, sess);
+	return 0;
+}
+
+static bool grace_period_check_and_touch(struct srv_state *state,
+					 struct udp_sess *sess, time_t now)
+{
+	unsigned nr_sync = 0;
 	time_t diff;
 
 	diff = now - READ_ONCE(sess->last_act);
-	if (diff > 10)
+	if (diff > 100)
 		return false;
 
+	if (diff > 80) {
+		nr_sync = 10;
+		goto out;
+	}
+
+	if (diff > 40) {
+		nr_sync = 5;
+		goto out;
+	}
+
+	if (diff > 20)
+		nr_sync = 1;
+
+out:
+	if (nr_sync)
+		send_req_sync(state, sess, nr_sync);
 	return true;
 }
 
@@ -981,7 +1025,7 @@ static __hot void _el_epl_zombie_reaper(struct srv_state *state)
 	for (i = 0; i < nr; i++) {
 		struct udp_sess *sess = &state->sess[arr[i]];
 
-		if (grace_period_check_and_touch(sess, now))
+		if (grace_period_check_and_touch(state, sess, now))
 			continue;
 
 		el_epl_close_udp_sess_zr(state, sess);
