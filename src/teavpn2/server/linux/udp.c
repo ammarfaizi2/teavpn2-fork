@@ -1789,6 +1789,20 @@ static __hot int el_epl_handle_tun_pkt(struct epoll_wrk *thread,
 	return 0;
 }
 
+static int el_epl_send_sync(struct epoll_wrk *thread, struct udp_sess *sess)
+{
+	struct srv_pkt *pkt = &thread->pkt.srv;
+	ssize_t ret;
+	size_t len;
+
+	len = srv_pprep_sync(pkt);
+	ret = el_epl_send_to_client(thread, sess, pkt, len, MSG_DONTWAIT);
+	if (ret > 0)
+		ret = 0;
+
+	return (int)ret;
+}
+
 static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 					  struct sockaddr_in *saddr)
 {
@@ -1814,13 +1828,17 @@ static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 	switch (thread->pkt.cli.type) {
 	case TCLI_PKT_AUTH:
 		ret = el_epl_handle_auth_pkt(thread, sess);
-		break;
+		update_last_act(sess);
+		return ret;
 	case TCLI_PKT_TUN_DATA:
 		ret = el_epl_handle_tun_pkt(thread, sess);
 		if (unlikely((sess->loop_c++ % 256) == 0))
 			update_last_act(sess);
-		break;
+		return ret;
 	case TCLI_PKT_REQSYNC:
+		ret = el_epl_send_sync(thread, sess);
+		update_last_act(sess);
+		return ret;
 	case TCLI_PKT_SYNC:
 		update_last_act(sess);
 		return 0;
@@ -1829,17 +1847,10 @@ static __hot int _el_epl_handle_event_udp(struct epoll_wrk *thread,
 		return 0;
 	}
 
-	if (unlikely(ret == -EBADMSG)) {
-		/*
-		 * Got a bad packet from the client.
-		 *
-		 * TODO: Request sync here...
-		 */
-		pr_notice("Bad packet!");
-		return 0;
-	}
-
-	return ret;
+	pr_notice("Bad packet from " PRWIU, W_IU(sess));
+	if (sess->err_c++ > 10)
+		el_epl_close_udp_sess(thread, sess);
+	return 0;
 }
 
 static __hot int el_epl_handle_event_udp(struct epoll_wrk *thread, int fd)
