@@ -955,7 +955,7 @@ static bool grace_period_check_and_touch(struct udp_sess *sess, time_t now)
 {
 	time_t diff;
 
-	diff = now - sess->last_act;
+	diff = now - READ_ONCE(sess->last_act);
 	if (diff > 10)
 		return false;
 
@@ -1180,7 +1180,7 @@ static void update_last_act(struct udp_sess *sess)
 {
 	struct timeval tt;
 	gettimeofday(&tt, NULL);
-	sess->last_act = tt.tv_sec;
+	WRITE_ONCE(sess->last_act, tt.tv_sec);
 }
 
 static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
@@ -1320,6 +1320,7 @@ static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
 	__acquires(&state->sess_stk_lock)
 	__releases(&state->sess_stk_lock)
 {
+	uint16_t idx;
 	int ret;
 
 	mutex_lock(&state->sess_stk_lock);
@@ -1329,9 +1330,10 @@ static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
 		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
 		return ret;
 	}
-	del_on_sess(state, sess->idx);
-	BUG_ON(bt_stack_push(&state->sess_stk, sess->idx) == -1);
-	reset_session(sess, sess->idx);
+	idx = READ_ONCE(sess->idx);
+	del_on_sess(state, idx);
+	BUG_ON(bt_stack_push(&state->sess_stk, idx) == -1);
+	reset_session(sess, idx);
 	mutex_unlock(&state->sess_stk_lock);
 	return ret;
 }
