@@ -1074,6 +1074,38 @@ out:
 	return ret;
 }
 
+static void add_on_sess(struct srv_state *state, uint16_t idx)
+	__must_hold(&state->sess_stk_lock)
+{
+	lockdep_assert_held(&state->sess_stk_lock);
+	state->list_on_sess[state->nr_list_on_sess++] = idx;
+}
+
+static void del_on_sess(struct srv_state *state, uint16_t idx)
+	__must_hold(&state->sess_stk_lock)
+{
+	uint16_t nr, i, *arr;
+	bool found = false;
+
+	lockdep_assert_held(&state->sess_stk_lock);
+	arr = state->list_on_sess;
+	nr = state->nr_list_on_sess;
+	for (i = 0; i < nr; i++) {
+		if (arr[i] != idx)
+			continue;
+
+		memmove(&arr[i], &arr[i + 1], (nr - idx - 1) * sizeof(*arr));
+		state->nr_list_on_sess--;
+		found = true;
+		break;
+	}
+
+	if (unlikely(!found)) {
+		panic("Aiee... trying to delete non existent online session!");
+		__builtin_unreachable();
+	}
+}
+
 static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 					 uint16_t port,
 					 struct sockaddr_in *saddr)
@@ -1103,6 +1135,7 @@ static struct udp_sess *create_udp_sess4(struct srv_state *state, uint32_t addr,
 		return ERR_PTR(err);
 	}
 
+	add_on_sess(state, idx);
 	ret->src_addr = addr;
 	ret->src_port = port;
 	ret->addr = *saddr;
@@ -1216,6 +1249,7 @@ static int delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
 		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
 		return ret;
 	}
+	del_on_sess(state, sess->idx);
 	BUG_ON(bt_stack_push(&state->sess_stk, sess->idx) == -1);
 	reset_session(sess, sess->idx);
 	mutex_unlock(&state->sess_stk_lock);
