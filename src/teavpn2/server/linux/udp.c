@@ -987,13 +987,8 @@ static bool grace_period_check_and_touch(struct srv_state *state,
 	if (diff > 100)
 		return false;
 
-	if (diff > 80) {
-		nr_sync = 10;
-		goto out;
-	}
-
 	if (diff > 40) {
-		nr_sync = 5;
+		nr_sync = 2;
 		goto out;
 	}
 
@@ -1035,8 +1030,14 @@ static __hot void _el_epl_zombie_reaper(struct srv_state *state)
 static void *el_epl_zombie_reaper(void *state_p)
 {
 	struct srv_state *state = state_p;
+	int ret;
 
-	nice(40);
+	errno = 0;
+	if (nice(40) == -1 && errno != 0) {
+		ret = errno;
+		pr_err("nice(): " PRERF, PREAR(ret));
+	}
+
 	while (!state->stop) {
 		mutex_lock(&state->sess_stk_lock);
 		_el_epl_zombie_reaper(state);
