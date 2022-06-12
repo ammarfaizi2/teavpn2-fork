@@ -40,7 +40,7 @@
  * atomicity. Note that this may result in tears!
  */
 #ifndef __READ_ONCE
-#define __READ_ONCE(x)	(*(const volatile __unqual_scalar_typeof(x) *)&(x))
+#define __READ_ONCE(x) (atomic_load((_Atomic(__typeof__(x)) *)&(x)))
 #endif
 
 #define compiletime_assert_rwonce_type(x)
