@@ -21,26 +21,6 @@
 #include <teavpn2/net/linux/iface.h>
 #include <teavpn2/server/linux/udp.h>
 
-#ifndef __READ_ONCE
-#define __READ_ONCE(x)	(*(const volatile __typeof__(x) *)&(x))
-#endif
-
-#define READ_ONCE(x)	\
-({			\
-	__READ_ONCE(x);	\
-})
-
-#define __WRITE_ONCE(x, val)				\
-do {							\
-	*(volatile __typeof__(x) *)&(x) = (val);	\
-} while (0)
-
-#define WRITE_ONCE(x, val)			\
-do {						\
-	compiletime_assert_rwonce_type(x);	\
-	__WRITE_ONCE(x, val);			\
-} while (0)
-
 typedef _Atomic(uint16_t) atomic_u16;
 
 enum {
