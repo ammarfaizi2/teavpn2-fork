@@ -1370,7 +1370,6 @@ static int __delete_udp_sess4(struct srv_state *state, struct udp_sess *sess)
 	lockdep_assert_held(&state->sess_stk_lock);
 	ret = remove_udp_sess_from_bucket(state, sess);
 	if (unlikely(ret)) {
-		mutex_unlock(&state->sess_stk_lock);
 		pr_err("remove_udp_sess_from_bucket(): " PRERF, PREAR(-ret));
 		return ret;
 	}
