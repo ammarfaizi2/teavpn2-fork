@@ -4,7 +4,4 @@
 # Copyright (C) 2023  Ammar Faizi <ammarfaizi2@gnuweeb.org>
 #
 
-DEP_DIRS += $(BASE_DEP_DIR)/src/teavpn2/client
-
-OBJ_CC += \
-	$(BASE_DIR)/src/teavpn2/client/entry.o
+DEP_DIRS += $(BASE_DEP_DIR)/src/teavpn2/ap/linux/client

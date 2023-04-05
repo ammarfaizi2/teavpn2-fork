@@ -3,13 +3,15 @@
  * Copyright (C) 2021  Ammar Faizi
  */
 
-#include <teavpn2/common.h>
 #include <stdio.h>
-#include <string.h>
+#include <teavpn2/common.h>
 
-uint8_t g_verbose;
+#ifdef CONFIG_GUI
+#undef fallthrough
+#include <teavpn2/gui/gui.h>
+#endif
 
-__cold void show_version(void)
+void show_version(void)
 {
 	puts("TeaVPN2 " TEAVPN2_VERSION);
 	puts("Copyright (C) 2021 Ammar Faizi\n"
@@ -17,7 +19,8 @@ __cold void show_version(void)
 	     "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
 }
 
-__cold static void show_general_usage(const char *app)
+
+static void show_general_usage(const char *app)
 {
 	printf(" Usage: %s [client|server] [options]\n\n", app);
 	printf(" See:\n");
@@ -38,8 +41,12 @@ static int run_teavpn2(int argc, char *argv[])
 		return run_client(argc, argv);
 
 	if (!strcmp("gui", argv[1])) {
+#ifdef CONFIG_GUI
+		return gui_entry(1, argv);
+#else
 		printf("This binary is not compiled with GUI support!\n");
 		return 1;
+#endif
 	}
 
 	if (!strcmp("--version", argv[1]) || !strcmp("-V", argv[1])) {
@@ -57,6 +64,7 @@ static int run_teavpn2(int argc, char *argv[])
 	return 1;
 }
 
+
 int main(int argc, char *argv[])
 {
 	if (setvbuf(stdout, NULL, _IOLBF, 2048))
@@ -69,6 +77,14 @@ int main(int argc, char *argv[])
 		show_general_usage(argv[0]);
 		return 0;
 	}
+
+#ifdef CONFIG_HPC_EMERGENCY
+	if (emerg_init_handler(EMERG_INIT_BUG | EMERG_INIT_WARN)) {
+		int ret = errno;
+		printf("Cannot set emerg handler: %s\n", strerror(ret));
+		return -ret;
+	}
+#endif
 
 	return run_teavpn2(argc, argv);
 }

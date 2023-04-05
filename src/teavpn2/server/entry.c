@@ -1,380 +1,315 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2021  Ammar Faizi
+ * Copyright (C) 2023  Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
 
-#include <ctype.h>
+#include <teavpn2/server.h>
+#include <teavpn2/helpers.h>
+
+#ifdef CONFIG_LINUX
+#include <teavpn2/ap/linux/server.h>
+#endif
+
 #include <getopt.h>
 #include <inih/inih.h>
-#include <teavpn2/server/common.h>
 
-struct cfg_parse_ctx {
-	struct srv_cfg	*cfg;
+static const struct option long_opts[] = {
+	/* Help, version and verbose. */
+	{"help",           no_argument,       NULL, 'h'},
+	{"version",        no_argument,       NULL, 'V'},
+	{"verbose",        optional_argument, NULL, 'v'},
+
+	/*
+	 * Socket configuration.
+	 */
+	{"encrypt",        no_argument,       NULL, 'E'},
+	{"sock-type",      required_argument, NULL, 's'},
+	{"bind-addr",      required_argument, NULL, 'H'},
+	{"bind-port",      required_argument, NULL, 'P'},
+	{"backlog",        required_argument, NULL, 'B'},
+	{"max-conn",       required_argument, NULL, 'M'},
+	{"event-loop",     required_argument, NULL, 'e'},
+	{"ssl-cert",       required_argument, NULL, 'C'},
+	{"ssl-priv-key",   required_argument, NULL, 'K'},
+
+	/*
+	 * Network configuration.
+	 */
+	{"dev",            required_argument, NULL, 'D'},
+	{"mtu",            required_argument, NULL, 'm'},
+	{"ipv4",           required_argument, NULL, '4'},
+	{"ipv6",           required_argument, NULL, '6'},
+
+	/*
+	 * System configuration.
+	 */
+	{"config",         required_argument, NULL, 'c'},
+	{"data-dir",       required_argument, NULL, 'd'},
+	{"max-thread",     required_argument, NULL, 't'},
+
+	{NULL, 0, NULL, 0}
 };
+static const char short_opts[] = "hVv::"
+				 "Es:H:P:B:M:e:C:K:"
+				 "D:m:4:6:"
+				 "c:d:t:";
 
 
 /*
- * Default config.
+ * Socket configuration default values.
  */
-static const int d_srv_backlog = 10;
-static const uint16_t d_srv_bind_port = 44444;
-static const uint16_t d_srv_mtu = 1450;
-static const char d_srv_dev[] = "tsrv0";
-static const char d_srv_ipv4[] = "10.5.5.1";
-static const char d_srv_ipv4_netmask[] = "255.255.255.0";
-static const char d_srv_cfg_file[] = "/etc/teavpn2/server.ini";
-static const uint8_t d_num_of_threads = 2;
-static const uint16_t d_srv_max_conn = 32;
+static const bool d_use_encryption = false;
+static const uint8_t d_sock_type = SOCK_DGRAM;
+static const char d_bind_addr[] = "::";
+static const uint16_t d_bind_port = 61111;
+static const int d_backlog = 128;
+static const uint32_t d_max_conn = 1024;
+static const char d_event_loop[] = "epoll";
+static const char d_ssl_cert[] = "/etc/teavpn2/server.crt";
+static const char d_ssl_priv_key[] = "/etc/teavpn2/server.key";
+
+/*
+ * Network configuration default values.
+ */
+static const char d_dev[] = "teavpn2-a0";
+static const uint16_t d_mtu = 1400;
+static const char d_ipv4[] = "10.77.77.1";
+static const char d_ipv6[] = "fc:aaaa:bbbb:cccc:1";
+
+/*
+ * System configuration default values.
+ */
+static const char d_config[] = "/etc/teavpn2/server.conf";
+static const char d_data_dir[] = "/var/lib/teavpn2";
+static const uint8_t d_max_thread = 4;
 
 
-static __cold void set_default_config(struct srv_cfg *cfg)
+__cold static void set_default_value_cfg_server(struct srv_cfg *cfg)
 {
-	struct srv_cfg_sys *sys = &cfg->sys;
 	struct srv_cfg_sock *sock = &cfg->sock;
-	struct srv_cfg_iface *iface = &cfg->iface;
-
-	sys->cfg_file = d_srv_cfg_file;
-	sys->thread_num = d_num_of_threads;
-
-	iface->iff.ipv4_mtu = d_srv_mtu;
-	strncpy2(iface->dev, d_srv_dev, sizeof(iface->dev));
-	strncpy2(iface->iff.dev, d_srv_dev, sizeof(iface->iff.dev));
-	strncpy2(iface->iff.ipv4, d_srv_ipv4, sizeof(iface->iff.ipv4));
-	strncpy2(iface->iff.ipv4_netmask, d_srv_ipv4_netmask,
-		 sizeof(iface->iff.ipv4_netmask));
-
-
-	strncpy2(sock->bind_addr, "0.0.0.0", sizeof(cfg->sock.bind_addr));
-	sock->bind_port = d_srv_bind_port;
-	sock->backlog = d_srv_backlog;
-	sock->max_conn = d_srv_max_conn;
-}
-
-
-static __cold void teavpn_server_show_help(const char *app)
-{
-	printf("Usage: %s server [options]\n", app);
-
-	printf("\n");
-	printf("TeaVPN Server Application\n");
-	printf("\n");
-	printf("Available options:\n");
-	printf("  -h, --help\t\t\tShow this help message.\n");
-	printf("  -V, --version\t\t\tShow application version.\n");
-	printf("  -c, --config=FILE\t\tSet config file (default: %s).\n",
-	       d_srv_cfg_file);
-	printf("  -d, --data-dir=DIR\t\tSet data directory.\n");
-	printf("  -t, --thread=N\t\tSet number of threads (default: %hhu).\n",
-	       d_num_of_threads);
-
-	printf("\n");
-	printf("[Config options]\n");
-	printf(" Virtual network interface:\n");
-	printf("  -D, --dev=DEV\t\t\tSet virtual network interface name"
-	       " (default: %s).\n", d_srv_dev);
-	printf("  -m, --mtu=MTU\t\t\tSet mtu value (default: %d).\n",
-	       d_srv_mtu);
-	printf("  -4, --ipv4=IP\t\t\tSet IPv4 (default: %s).\n", d_srv_ipv4);
-	printf("  -N, --ipv4-netmask=MASK\tSet IPv4 netmask (default: %s).\n",
-	       d_srv_ipv4_netmask);
-#ifdef TEAVPN_IPV6_SUPPORT
-	printf("  -6, --ipv6=IP\t\t\tSet IPv6 (default: %s).\n", "???");
-	printf("  -M, --ipv6-netmask=MASK\tSet IPv6 netmask (default: %s).\n",
-	       "???");
-#endif
-
-
-	printf("\n");
-	printf(" Socket:\n");
-	printf("  -s, --sock-type=TYPE\t\tSet socket type (must be tcp or udp)"
-	       " (default: tcp).\n");
-	printf("  -H, --bind-addr=IP\t\tSet bind address (default 0.0.0.0).\n");
-	printf("  -P, --bind-port=PORT\t\tSet bind port (default: %d).\n",
-	       d_srv_bind_port);
-	printf("  -k, --max-conn=N\t\tSet max connections (default: %d).\n",
-	       d_srv_max_conn);
-	printf("  -B, --backlog=N\t\tSet socket listen backlog (default: %d)"
-	       ".\n", d_srv_backlog);
-	printf("  -C, --ssl-cert=FILE\t\tSet SSL certificate.\n");
-	printf("  -K, --ssl-priv-key=FILE\tSet SSL private key.\n");
-
-	printf("\n");
-	printf("\n");
-	printf("For bug reporting, please open an issue on the GitHub repository."
-	       "\n");
-	printf("GitHub repository: https://github.com/TeaInside/teavpn2\n");
-	printf("\n");
-	printf("This software is licensed under GNU GPL-v2 license.\n");
-}
-
-
-#define PR_CFG(C, FMT) printf("   " #C " = " FMT "\n", C)
-
-
-static __maybe_unused void dump_server_cfg(struct srv_cfg *cfg)
-{
-	puts("=============================================");
-	puts("   Config dump   ");
-	puts("=============================================");
-	PR_CFG(cfg->sys.cfg_file, "%s");
-	PR_CFG(cfg->sys.data_dir, "%s");
-	PR_CFG(cfg->sys.thread_num, "%hhu");
-	PR_CFG(cfg->sys.verbose_level, "%hhu");
-	putchar('\n');
-	printf("   cfg->sock.use_encryption = %hhu\n",
-		(uint8_t)cfg->sock.use_encryption);
-	printf("   cfg->sock.type = %s\n",
-		(cfg->sock.type == SOCK_TCP) ? "SOCK_TCP" :
-		((cfg->sock.type == SOCK_UDP) ? "SOCK_UDP" : "unknown"));
-	PR_CFG(cfg->sock.bind_addr, "%s");
-	PR_CFG(cfg->sock.bind_port, "%hu");
-	PR_CFG(cfg->sock.event_loop, "%s");
-	PR_CFG(cfg->sock.max_conn, "%hu");
-	PR_CFG(cfg->sock.ssl_cert, "%s");
-	PR_CFG(cfg->sock.ssl_priv_key, "%s");
-	putchar('\n');
-	PR_CFG(cfg->iface.dev, "%s");
-	PR_CFG(cfg->iface.mtu, "%hu");
-	PR_CFG(cfg->iface.iff.ipv4, "%s");
-	PR_CFG(cfg->iface.iff.ipv4_netmask, "%s");
-	puts("=============================================");
-}
-
-/* TODO: Write my own getopt function. */
-
-static const struct option long_options[] = {
-	/* Help, version and verbose. */
-	{"help",           no_argument,       0, 'h'},
-	{"version",        no_argument,       0, 'V'},
-	{"verbose",        optional_argument, 0, 'v'},
-
-	/* Sys. */
-	{"config",         required_argument, 0, 'c'},
-	{"data-dir",       required_argument, 0, 'd'},
-	{"thread",         required_argument, 0, 't'},
-
-	/* Net. */
-	{"dev",            required_argument, 0, 'D'},
-	{"mtu",            required_argument, 0, 'm'},
-	{"ipv4",           required_argument, 0, '4'},
-	{"ipv4-netmask",   required_argument, 0, 'N'},
-
-	/* Socket. */
-	{"sock-type",      required_argument, 0, 's'},
-	{"bind-addr",      required_argument, 0, 'H'},
-	{"bind-port",      required_argument, 0, 'P'},
-	{"backlog",        required_argument, 0, 'B'},
-	{"encrypt",        no_argument,       0, 'E'},
-
-
-	{0, 0, 0, 0}
-};
-static const char short_opt[] = "hVv::c:d:t:D:m:4:N:s:H:P:B:E:";
-
-static __cold int parse_argv(int argc, char *argv[], struct srv_cfg *cfg)
-{
-	int c;
+	struct srv_cfg_net *net = &cfg->net;
 	struct srv_cfg_sys *sys = &cfg->sys;
+
+	memset(cfg, 0, sizeof(*cfg));
+
+	/* Socket configuration. */
+	sock->use_encryption = d_use_encryption;
+	sock->type = d_sock_type;
+	memcpy(sock->bind_addr, d_bind_addr, sizeof(d_bind_addr));
+	sock->bind_port = d_bind_port;
+	sock->backlog = d_backlog;
+	sock->max_conn = d_max_conn;
+	memcpy(sock->event_loop, d_event_loop, sizeof(d_event_loop));
+	sock->ssl_cert = d_ssl_cert;
+	sock->ssl_priv_key = d_ssl_priv_key;
+
+	/* Network configuration. */
+	memcpy(net->dev, d_dev, sizeof(d_dev));
+	net->mtu = d_mtu;
+	memcpy(net->ipv4, d_ipv4, sizeof(d_ipv4));
+	memcpy(net->ipv6, d_ipv6, sizeof(d_ipv6));
+
+	/* System configuration. */
+	sys->cfg_file = d_config;
+	sys->data_dir = d_data_dir;
+	sys->max_thread = d_max_thread;
+}
+
+__cold static void show_server_help(const char *app)
+{
+	printf("Usage: %s server [OPTIONS]\n", app);
+	printf("\n Options:\n");
+	printf("  -h, --help              Show this help message and exit\n");
+	printf("  -V, --version           Show version information and exit\n");
+	printf("  -v, --verbose[=LEVEL]   Increase verbosity level (range: 0-3) [default: 0]\n");
+	printf("\n");
+	printf("  -E, --encrypt           Enable encryption\n");
+	printf("  -s, --sock-type=TYPE    Set socket type (tcp/udp) [default: udp]\n");
+	printf("  -H, --bind-addr=ADDR    Set bind address [default: %s]\n", d_bind_addr);
+	printf("  -P, --bind-port=PORT    Set bind port [default: %hu]\n", d_bind_port);
+	printf("  -B, --backlog=NUM       Set listen backlog, only for TCP [default: %d]\n", d_backlog);
+	printf("  -M, --max-conn=NUM      Set the maximum number of connections [default: %u]\n", d_max_conn);
+	printf("  -e, --event-loop=NAME   Set event loop (epoll/poll/io_uring) [default: %s]\n", d_event_loop);
+	printf("  -C, --ssl-cert=FILE     Set SSL certificate file [default: %s]\n", d_ssl_cert);
+	printf("  -K, --ssl-priv-key=FILE Set SSL private key file [default: %s]\n", d_ssl_priv_key);
+	printf("\n");
+	printf("  -D, --dev=NAME          Set device name [default: %s]\n", d_dev);
+	printf("  -m, --mtu=MTU           Set MTU [default: %hu]\n", d_mtu);
+	printf("  -4, --ipv4=ADDR         Set IPv4 address [default: %s]\n", d_ipv4);
+	printf("  -6, --ipv6=ADDR         Set IPv6 address [default: %s]\n", d_ipv6);
+	printf("\n");
+	printf("  -c, --config=FILE       Set configuration file [default: %s]\n", d_config);
+	printf("  -d, --data-dir=DIR      Set data directory [default: %s]\n", d_data_dir);
+	printf("  -t, --max-thread=NUM    Set the maximum number of threads [default: %hhu]\n", d_max_thread);
+	printf("\n");
+}
+
+__cold static void print_server_einval(const char *app)
+{
+	fprintf(stderr, "\nTry `%s server --help' for more information.\n",
+		app);
+}
+
+__cold static int parse_argv_server(int argc, char *argv[], struct srv_cfg *cfg)
+{
 	struct srv_cfg_sock *sock = &cfg->sock;
-	struct srv_cfg_iface *iface = &cfg->iface;
+	struct srv_cfg_net *net = &cfg->net;
+	struct srv_cfg_sys *sys = &cfg->sys;
+	int ret;
 
 	while (1) {
-		int opt_idx = 0;
-
-		c = getopt_long(argc, argv, short_opt, long_options, &opt_idx);
+		int c = getopt_long(argc, argv, short_opts, long_opts, NULL);
 		if (c == -1)
 			break;
 
 		switch (c) {
-		/* Help, version and verbose. */
 		case 'h':
-			teavpn_server_show_help(argv[0]);
-			goto exit_zero;
+			show_server_help(argv[0]);
+			return 1;
 		case 'V':
 			show_version();
-			goto exit_zero;
-		case 'v': {
-			uint8_t level = optarg ? (uint8_t)atoi(optarg) : 6u;
-			set_notice_level(level);
-			sys->verbose_level = level;
+			return 1;
+		case 'v':
+			g_verbose = 1;
+			if (optarg)
+				g_verbose = (uint8_t)atoi(optarg);
 			break;
-		}
-
-		/* Sys */
 		case 'c':
 			sys->cfg_file = optarg;
 			break;
 		case 'd':
-			strncpy2(sys->data_dir, optarg, sizeof(sys->data_dir));
+			sys->data_dir = optarg;
 			break;
-		case 't':  {
-			int tmp = atoi(optarg);
-			if (tmp <= 0) {
-				pr_err("Thread num argument must be greater than 0");
-				return -EINVAL;
-			}
-			sys->thread_num = (uint8_t)tmp;
+		case 't':
+			sys->max_thread = (uint8_t)atoi(optarg);
 			break;
-		}
-
-
-		/* Net. */
 		case 'D':
-			strncpy2(iface->dev, optarg, sizeof(iface->dev));
+			strecpy(net->dev, optarg, sizeof(net->dev));
 			break;
-		case 'm':  {
-			int tmp = atoi(optarg);
-			if (tmp <= 0) {
-				pr_err("MTU must be greater than 0");
-				return -EINVAL;
-			}
-			iface->mtu = (uint16_t)tmp;
+		case 'm':
+			net->mtu = (uint16_t)atoi(optarg);
 			break;
-		}
 		case '4':
-			strncpy2(iface->iff.ipv4, optarg, sizeof(iface->iff.ipv4));
+			strecpy(net->ipv4, optarg, sizeof(net->ipv4));
 			break;
-		case 'N':
-			strncpy2(iface->iff.ipv4_netmask, optarg,
-				 sizeof(iface->iff.ipv4_netmask));
+		case '6':
+			strecpy(net->ipv6, optarg, sizeof(net->ipv6));
 			break;
-
-		/* Socket. */
-		case 's':  {
-			char tmp[5], *p = tmp;
-
-			strncpy(tmp, optarg, sizeof(tmp));
-			tmp[sizeof(tmp) - 1] = '\0';
-
-			while (*p) {
-				*p = (char)tolower((unsigned char)*p);
-				p++;
-			}
-
-			if (!strcmp(tmp, "tcp")) {
-				sock->type = SOCK_TCP;
-			} else if (!strcmp(tmp, "udp")) {
-				sock->type = SOCK_UDP;
-			} else {
-				pr_err("Invalid socket type: %s", optarg);
-				return -EINVAL;
-			}
+		case 's':
+			ret = parse_socket_type(optarg, &sock->type);
 			break;
-		}
 		case 'H':
-			strncpy(sock->bind_addr, optarg, sizeof(sock->bind_addr));
-			sock->bind_addr[sizeof(sock->bind_addr) - 1] = '\0';
+			strecpy(sock->bind_addr, optarg,
+				sizeof(sock->bind_addr));
 			break;
 		case 'P':
 			sock->bind_port = (uint16_t)atoi(optarg);
 			break;
-		case 'E':
-			sock->use_encryption = atoi(optarg) ? true : false;
+		case 'B':
+			sock->backlog = (uint16_t)atoi(optarg);
 			break;
+		case 'E':
+			sock->use_encryption = true;
+			break;
+		case 'M':
+			sock->max_conn = (uint16_t)atoi(optarg);
+			break;
+		case '?':
+		default:
+			print_server_einval(argv[0]);
+			return -EINVAL;
 		}
+
+		if (ret < 0)
+			return ret;
 	}
 
 	return 0;
-
-exit_zero:
-	exit(0);
-	__builtin_unreachable();
 }
 
+struct cfg_parse_ctx {
+	struct srv_cfg	*cfg;
+	int		err;
+};
 
-static int cfg_parse_section_sys(struct cfg_parse_ctx *ctx, const char *name,
+static int server_cfg_parse_sock(struct cfg_parse_ctx *ctx, const char *name,
 				 const char *val, int lineno)
 {
-	struct srv_cfg *cfg = ctx->cfg;
-	if (!strcmp(name, "thread")) {
-		cfg->sys.thread_num = (uint8_t)strtoul(val, NULL, 10);
-	} else if (!strcmp(name, "verbose_level")) {
-		uint8_t level = (uint8_t)strtoul(val, NULL, 10);
-		set_notice_level(level);
-		cfg->sys.verbose_level = level;
-	} else if (!strcmp(name, "data_dir")) {
-		strncpy2(cfg->sys.data_dir, val, sizeof(cfg->sys.data_dir));
-	} else {
-		pr_err("Unknown name \"%s\" in section \"%s\" at %s:%d", name,
-			"sys", cfg->sys.cfg_file, lineno);
-		return 0;
-	}
-	return 1;
-}
+	struct srv_cfg_sock *sock = &ctx->cfg->sock;
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
 
-
-static int cfg_parse_section_socket(struct cfg_parse_ctx *ctx, const char *name,
-				    const char *val, int lineno)
-{
-	struct srv_cfg *cfg = ctx->cfg;
 	if (!strcmp(name, "use_encryption")) {
-		cfg->sock.use_encryption = atoi(val) ? true : false;
-	} else if (!strcmp(name, "event_loop")) {
-		strncpy2(cfg->sock.event_loop, val, sizeof(cfg->sock.event_loop));
-	} else if (!strcmp(name, "sock_type")) {
-		char tmp[8], *p = tmp;
-		strncpy2(tmp, val, sizeof(tmp));
-		while (*p) {
-			*p = (char)tolower((unsigned char)*p);
-			p++;
-		}
-
-		if (!strcmp(tmp, "tcp")) {
-			cfg->sock.type = SOCK_TCP;
-		} else if (!strcmp(tmp, "udp")) {
-			cfg->sock.type = SOCK_UDP;
-		} else {
-			pr_err("Invalid socket type \"%s\" at %s:%d", val,
-				cfg->sys.cfg_file, lineno);
+		sock->use_encryption = (bool)atoi(val);
+	} else if (!strcmp(name, "type")) {
+		int ret = parse_socket_type(val, &sock->type);
+		if (ret < 0) {
+			fprintf(stderr, "Invalid socket type \"%s\" in %s:%d\n",
+				val, sys->cfg_file, lineno);
+			ctx->err = ret;
 			return 0;
 		}
 	} else if (!strcmp(name, "bind_addr")) {
-		strncpy2(cfg->sock.bind_addr, val, sizeof(cfg->sock.bind_addr));
+		strecpy(sock->bind_addr, val, sizeof(sock->bind_addr));
 	} else if (!strcmp(name, "bind_port")) {
-		cfg->sock.bind_port = (uint16_t)strtoul(val, NULL, 10);
+		sock->bind_port = (uint16_t)atoi(val);
 	} else if (!strcmp(name, "backlog")) {
-		cfg->sock.backlog = atoi(val);
+		sock->backlog = (uint16_t)atoi(val);
 	} else if (!strcmp(name, "max_conn")) {
-		cfg->sock.max_conn = (uint16_t)strtoul(val, NULL, 10);
-	} else if (!strcmp(name, "ssl_cert")) {
-		strncpy2(cfg->sock.ssl_cert, val, sizeof(cfg->sock.ssl_cert));
-	} else if (!strcmp(name, "ssl_priv_key")) {
-		strncpy2(cfg->sock.ssl_priv_key, val, sizeof(cfg->sock.ssl_priv_key));
+		sock->max_conn = (uint16_t)atoi(val);
 	} else {
-		pr_err("Unknown name \"%s\" in section \"%s\" at %s:%d", name,
-			"socket", cfg->sys.cfg_file, lineno);
+		fprintf(stderr, "Unknown option \"%s\" in %s:%d\n", name,
+			sys->cfg_file, lineno);
+		ctx->err = -EINVAL;
 		return 0;
 	}
+
 	return 1;
 }
 
-
-static int cfg_parse_section_iface(struct cfg_parse_ctx *ctx, const char *name,
-				   const char *val, int lineno)
+static int server_cfg_parse_net(struct cfg_parse_ctx *ctx, const char *name,
+				const char *val, int lineno)
 {
-	struct srv_cfg *cfg = ctx->cfg;
+	struct srv_cfg_net *net = &ctx->cfg->net;
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
+
 	if (!strcmp(name, "dev")) {
-		strncpy2(cfg->iface.dev, val, sizeof(cfg->iface.dev));
-		cfg->iface.dev[sizeof(cfg->iface.dev) - 1] = '\0';
-		strncpy2(cfg->iface.iff.dev, val, sizeof(cfg->iface.iff.dev));
-		cfg->iface.iff.dev[sizeof(cfg->iface.iff.dev) - 1] = '\0';
+		strecpy(net->dev, val, sizeof(net->dev));
 	} else if (!strcmp(name, "mtu")) {
-		cfg->iface.mtu = (uint16_t)strtoul(val, NULL, 10);
-		cfg->iface.iff.ipv4_mtu = cfg->iface.mtu;
+		net->mtu = (uint16_t)atoi(val);
 	} else if (!strcmp(name, "ipv4")) {
-		strncpy2(cfg->iface.iff.ipv4, val, sizeof(cfg->iface.iff.ipv4));
-		cfg->iface.iff.ipv4[sizeof(cfg->iface.iff.ipv4) - 1] = '\0';
-	} else if (!strcmp(name, "ipv4_netmask")) {
-		strncpy2(cfg->iface.iff.ipv4_netmask, val, sizeof(cfg->iface.iff.ipv4_netmask));
-		cfg->iface.iff.ipv4_netmask[sizeof(cfg->iface.iff.ipv4_netmask) - 1] = '\0';
+		strecpy(net->ipv4, val, sizeof(net->ipv4));
+	} else if (!strcmp(name, "ipv6")) {
+		strecpy(net->ipv6, val, sizeof(net->ipv6));
 	} else {
-		pr_err("Unknown name \"%s\" in section \"%s\" at %s:%d", name,
-			"iface", cfg->sys.cfg_file, lineno);
+		fprintf(stderr, "Unknown option \"%s\" in %s:%d\n", name,
+			sys->cfg_file, lineno);
+		ctx->err = -EINVAL;
 		return 0;
 	}
+
 	return 1;
 }
 
+static int server_cfg_parse_sys(struct cfg_parse_ctx *ctx, const char *name,
+				const char *val, int lineno)
+{
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
+
+	if (!strcmp(name, "cfg_file")) {
+		sys->cfg_file = val;
+	} else if (!strcmp(name, "data_dir")) {
+		sys->data_dir = val;
+	} else if (!strcmp(name, "max_thread")) {
+		sys->max_thread = (uint8_t)atoi(val);
+	} else {
+		fprintf(stderr, "Unknown option \"%s\" in %s:%d\n", name,
+			sys->cfg_file, lineno);
+		ctx->err = -EINVAL;
+		return 0;
+	}
+
+	return 1;
+}
 
 /*
  * If success, returns 1.
@@ -384,84 +319,97 @@ static int server_cfg_parser(void *user, const char *section, const char *name,
 			     const char *val, int lineno)
 {
 	struct cfg_parse_ctx *ctx = (struct cfg_parse_ctx *)user;
-	struct srv_cfg *cfg = ctx->cfg;
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
 
-	if (!strcmp(section, "sys")) {
-		return cfg_parse_section_sys(ctx, name, val, lineno);
-	} else if (!strcmp(section, "socket")) {
-		return cfg_parse_section_socket(ctx, name, val, lineno);
-	} else if (!strcmp(section, "iface")) {
-		return cfg_parse_section_iface(ctx, name, val, lineno);
-	}
+	if (!strcmp(section, "sock"))
+		return server_cfg_parse_sock(ctx, name, val, lineno);
+	else if (!strcmp(section, "net"))
+		return server_cfg_parse_net(ctx, name, val, lineno);
+	else if (!strcmp(section, "sys"))
+		return server_cfg_parse_sys(ctx, name, val, lineno);
 
-	pr_err("Unknown section \"%s\" in at %s:%d", section, cfg->sys.cfg_file,
-		lineno);
+	fprintf(stderr, "Unknown section \"%s\" in %s:%d\n", section,
+		sys->cfg_file, lineno);
 	return 0;
 }
 
-
-static __cold int parse_cfg_file(const char *cfg_file, struct srv_cfg *cfg)
+static int load_cfg_server(struct srv_cfg *cfg)
 {
-	int ret;
-	FILE *handle;
+	const char *file = cfg->sys.cfg_file;
 	struct cfg_parse_ctx ctx;
+	FILE *handle;
+	int ret;
 
-	ctx.cfg = cfg;
-
-	if (!cfg_file)
+	/*
+	 * Use --config="" to disable the configuration file.
+	 */
+	if (!file || !file[0])
 		return 0;
 
-	handle = fopen(cfg_file, "rb");
-	if (!handle) {
-		ret = errno;
-		pr_err("Cannot open config file \"%s\": " PRERF, cfg_file,
-			PREAR(ret));
-		return -ret;
+	handle = fopen(file, "rb");
+	if (!handle && file != d_config) {
+		ret = -errno;
+		fprintf(stderr, "Failed to open configuration file: %s: %s\n",
+			file, strerror(-ret));
+		return ret;
 	}
 
+	/*
+	 * If the configuration file is not specified, we will use the
+	 * default configuration file.
+	 *
+	 * If the default configuration file cannot be opened, we will
+	 * use the default configuration.
+	 */
+	if (!handle)
+		return 0;
+
+	ctx.cfg = cfg;
+	ctx.err = 0;
 	ret = ini_parse_file(handle, server_cfg_parser, &ctx);
-	if (ret) {
-		pr_err("Failed to parse config file \"%s\"", cfg_file);
-		ret = -EINVAL;
+	fclose(handle);
+	if (ret < 0) {
+		ret = ctx.err;
+		fprintf(stderr, "Failed to parse configuration file: %s: %s\n",
+			file, strerror(-ret));
+		return ret;
 	}
 
-	fclose(handle);
-	return ret;
+	return 0;
 }
 
-
-__cold int run_server(int argc, char *argv[])
+int run_server(int argc, char *argv[])
 {
-	int ret;
 	struct srv_cfg cfg;
-	memset(&cfg, 0, sizeof(cfg));
+	int ret;
 
-	set_default_config(&cfg);
-	ret = parse_argv(argc, argv, &cfg);
+	/*
+	 * A preparation to get the configuration file.
+	 */
+	ret = parse_argv_server(argc, argv, &cfg);
 	if (ret)
+		goto out;
+
+	set_default_value_cfg_server(&cfg);
+	ret = load_cfg_server(&cfg);
+	if (ret < 0)
+		goto out;
+
+	/*
+	 * Call it again.
+	 *
+	 * The command line arguments override the values in the
+	 * configuration file.
+	 */
+	optind = 1;
+	ret = parse_argv_server(argc, argv, &cfg);
+	if (ret)
+		goto out;
+
+	ret = run_server_app(&cfg);
+out:
+	if (ret < 0)
 		return -ret;
 
-	ret = parse_cfg_file(cfg.sys.cfg_file, &cfg);
-	if (ret) {
-		if (!(ret == -ENOENT && !strcmp(cfg.sys.cfg_file, d_srv_cfg_file)))
-			return -ret;
-	}
-
-
-#ifndef NDEBUG
-	dump_server_cfg(&cfg);
-#endif
-
-	data_dir = cfg.sys.data_dir;
-	switch (cfg.sock.type) {
-	case SOCK_UDP:
-		ret = -teavpn2_server_udp_run(&cfg);
-		break;
-	case SOCK_TCP:
-	default:
-		ret = ESOCKTNOSUPPORT;
-		break;
-	}
-	data_dir = NULL;
-	return ret;
+	return 0;
 }

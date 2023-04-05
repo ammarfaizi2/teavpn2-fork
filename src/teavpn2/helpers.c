@@ -3,31 +3,75 @@
  * Copyright (C) 2023  Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
 
+#include <teavpn2/common.h>
 #include <teavpn2/helpers.h>
-#include <string.h>
-#include <errno.h>
 
-int str_to_sockaddr(const char *addr_str, uint16_t port,
-		    struct sockaddr_storage *addr)
+int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
+		    uint16_t port)
 {
-	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
-	struct sockaddr_in *addr4 = (struct sockaddr_in *)addr;
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ss;
+	struct sockaddr_in *sin = (struct sockaddr_in *)ss;
 	int ret;
 
-	memset(addr, 0, sizeof(*addr));
-	ret = inet_pton(AF_INET6, addr_str, &addr6->sin6_addr);
+	ret = inet_pton(AF_INET6, addr, &sin6->sin6_addr);
 	if (ret == 1) {
-		addr6->sin6_family = AF_INET6;
-		addr6->sin6_port = htons(port);
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = htons(port);
 		return 0;
 	}
 
-	ret = inet_pton(AF_INET, addr_str, &addr4->sin_addr);
+	ret = inet_pton(AF_INET, addr, &sin->sin_addr);
 	if (ret == 1) {
-		addr4->sin_family = AF_INET;
-		addr4->sin_port = htons(port);
+		sin->sin_family = AF_INET;
+		sin->sin_port = htons(port);
 		return 0;
 	}
 
+	return -EINVAL;
+}
+
+bool teavpn_check_uname(const char *u)
+{
+	size_t len = 0;
+
+	while (1) {
+		if (u[len] == '\0')
+			break;
+
+		if (!(isalnum(u[len]) || u[len] == '_' || u[len] == '-'))
+			return false;
+
+		if (++len > 255)
+			return false;
+	}
+
+	return (len >= 3);
+}
+
+__cold int parse_socket_type(const char *str, uint8_t *type)
+{
+	char tmp[4];
+	size_t i;
+
+	/*
+	 * Convert to lower case. Don't use tolower() to avoid
+	 * function call. Keep it small.
+	 */
+	for (i = 0; i < (sizeof(tmp) - 1); i++) {
+		if (!str[i])
+			break;
+		tmp[i] = str[i] | 0x20;
+	}
+	tmp[i] = '\0';
+
+	if (!strcmp(tmp, "tcp")) {
+		*type = SOCK_TYPE_TCP;
+		return 0;
+	} else if (!strcmp(tmp, "udp")) {
+		*type = SOCK_TYPE_UDP;
+		return 0;
+	}
+
+	fprintf(stderr, "Invalid socket type: %s (valid: tcp, udp)\n", str);
 	return -EINVAL;
 }

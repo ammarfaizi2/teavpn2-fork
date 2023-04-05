@@ -1,285 +1,144 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2021  Ammar Faizi
+ * Copyright (C) 2023  Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
 
 #ifndef TEAVPN2__COMMON_H
 #define TEAVPN2__COMMON_H
 
+#include <stdio.h>
 #include <errno.h>
-#include <string.h>
-#include <assert.h>
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <assert.h>
 #include <stdbool.h>
-#include <stdalign.h>
-#include <inttypes.h>
 
-#include <teavpn2/print.h>
-#include <teavpn2/allocator.h>
-#include <teavpn2/compiler_attributes.h>
-#include <teavpn2/helpers.h>
-
-#ifndef unlikely
-#  define unlikely(X) __builtin_expect((bool)(X), 0)
+#ifndef __printf
+#define __printf(a, b)	__attribute__((__format__(printf, a, b)))
 #endif
 
-#ifndef likely
-#  define likely(X) __builtin_expect((bool)(X), 1)
+#ifndef __packed
+#define __packed	__attribute__((__packed__))
 #endif
 
-#if defined(__clang__)
-#  pragma clang diagnostic push
-#  pragma clang diagnostic ignored "-Wreserved-id-macro"
+#ifndef __aligned
+#define __aligned(x)	__attribute__((__aligned__(x)))
 #endif
 
-#ifndef ____stringify
-#  define ____stringify(EXPR) #EXPR
+#ifndef __unused
+#define __unused	__attribute__((__unused__))
 #endif
 
-#ifndef __stringify
-#  define __stringify(EXPR) ____stringify(EXPR)
-#endif
-
-#ifndef __acquires
-#  define __acquires(LOCK)
-#endif
-
-#ifndef __releases
-#  define __releases(LOCK)
-#endif
-
-#ifndef __must_hold
-#  define __must_hold(LOCK)
-#endif
-
-#ifndef __hot
-#  define __hot __attribute__((__hot__))
+#ifndef __maybe_unused
+#define __maybe_unused	__attribute__((__unused__))
 #endif
 
 #ifndef __cold
-#  define __cold __attribute__((__cold__))
+#define __cold		__attribute__((__cold__))
 #endif
 
-
-#ifndef __READ_ONCE
-#  define __READ_ONCE(x) (*(const volatile __typeof__(x) *)&(x))
+#ifndef __hot
+#define __hot		__attribute__((__hot__))
 #endif
 
-#ifndef READ_ONCE
-#define READ_ONCE(x)	\
-({			\
-	__READ_ONCE(x);	\
-})
+#ifndef __always_inline
+#define __always_inline	inline __attribute__((__always_inline__))
 #endif
 
-#ifndef __WRITE_ONCE
-#define __WRITE_ONCE(x, val)				\
-do {							\
-	*(volatile __typeof__(x) *)&(x) = (val);	\
-} while (0)
+#ifndef __noinline
+#define __noinline	__attribute__((__noinline__))
 #endif
 
-#ifndef WRITE_ONCE
-#define WRITE_ONCE(x, val)	\
-do {				\
-	__WRITE_ONCE(x, val);	\
-} while (0)
+#ifndef __noreturn
+#define __noreturn	__attribute__((__noreturn__))
 #endif
 
-#if defined(__clang__)
-#  pragma clang diagnostic pop
+#ifndef __malloc
+#define __malloc	__attribute__((__malloc__))
 #endif
 
-#ifndef INET_ADDRSTRLEN
-#  define IPV4_L (sizeof("xxx.xxx.xxx.xxx"))
-#else
-#  define IPV4_L (INET_ADDRSTRLEN)
+#ifndef __must_check
+#define __must_check	__attribute__((__warn_unused_result__))
 #endif
 
-#ifndef INET6_ADDRSTRLEN
-#  define IPV6_L (sizeof("xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxx.xxx.xxx.xxx"))
-#else
-#  define IPV6_L (INET6_ADDRSTRLEN)
+#ifndef __used
+#define __used		__attribute__((__used__))
 #endif
 
+#ifndef ____stringify
+#define ____stringify(EXPR) #EXPR
+#endif
+
+#ifndef __stringify
+#define __stringify(EXPR) ____stringify(EXPR)
+#endif
+
+#ifndef STR
 #define STR(a) #a
+#endif
+
+#ifndef XSTR
 #define XSTR(a) STR(a)
+#endif
 
 #define TEAVPN2_VERSION \
 	XSTR(VERSION) "." XSTR(PATCHLEVEL) "." XSTR(SUBLEVEL) EXTRAVERSION
 
+#ifndef SIZE_ASSERT
+#define SIZE_ASSERT(TYPE, LEN) 						\
+	static_assert(sizeof(TYPE) == (LEN),				\
+		      "Bad " __stringify(sizeof(TYPE) == (LEN)))
+#endif
 
-#define TVPN_MAX_UNAME_LEN	(0x100u)
-#define TVPN_MAX_PASS_LEN	(0x100u)
+#ifndef OFFSET_ASSERT
+#define OFFSET_ASSERT(TYPE, EQU, MEM) 					\
+	static_assert(offsetof(TYPE, MEM) == (EQU),			\
+		      "Bad " __stringify(offsetof(TYPE, MEM) == (EQU)))
+#endif
 
-extern int run_client(int argc, char *argv[]);
-extern int run_server(int argc, char *argv[]);
-
-#define IFACENAMESIZ 16u
-
-typedef enum _sock_type_t {
-	SOCK_UDP,
-	SOCK_TCP
-} sock_type;
-
-typedef sock_type sock_type_t;
-
-typedef enum _event_loop_t {
-	EVTL_NOP,
-	EVTL_EPOLL,
-	EVTL_IO_URING
-} event_loop_t;
-
-
-/* Make it 32 bytes in size. */
+/*
+ * The size of this struct matters, because it will be sent
+ * over the network.
+ */
 struct teavpn2_version {
-	uint8_t		ver;
-	uint8_t		patch_lvl;
-	uint8_t		sub_lvl;
-	char		extra[29];
+	uint8_t	ver;
+	uint8_t	patch_lvl;
+	uint8_t	sub_lvl;
+	char	extra[29];
 };
+OFFSET_ASSERT(struct teavpn2_version, 0, ver);
+OFFSET_ASSERT(struct teavpn2_version, 1, patch_lvl);
+OFFSET_ASSERT(struct teavpn2_version, 2, sub_lvl);
+OFFSET_ASSERT(struct teavpn2_version, 3, extra);
+SIZE_ASSERT(struct teavpn2_version, 32);
 
-static_assert(offsetof(struct teavpn2_version, ver) == 0,
-	      "Bad offsetof(struct teavpn2_version, ver)");
-
-static_assert(offsetof(struct teavpn2_version, patch_lvl) == 1,
-	      "Bad offsetof(struct teavpn2_version, patch_lvl)");
-
-static_assert(offsetof(struct teavpn2_version, sub_lvl) == 2,
-	      "Bad offsetof(struct teavpn2_version, sub_lvl)");
-
-static_assert(offsetof(struct teavpn2_version, extra) == 3,
-	      "Bad offsetof(struct teavpn2_version, extra)");
-
-static_assert(sizeof(struct teavpn2_version) == 32,
-	      "Bad sizeof(struct teavpn2_version)");
-
-
-struct if_info {
-	char		dev[IFACENAMESIZ];
-	char		ipv4_pub[IPV4_L];
-	char		ipv4[IPV4_L];
-	char		ipv4_netmask[IPV4_L];
-	char		ipv4_dgateway[IPV4_L];
-#ifdef TEAVPN_IPV6_SUPPORT
-	char		ipv6_pub[IPV6_L];
-	char		ipv6[IPV6_L];
-	char		ipv6_netmask[IPV6_L];
-	char		ipv6_dgateway[IPV6_L];
-#endif
-	uint16_t	ipv4_mtu;
-#ifdef TEAVPN_IPV6_SUPPORT
-	uint16_t	ipv6_mtu;
-#endif
-};
-
-static_assert(IFACENAMESIZ == 16u, "Bad IFACENAMESIZ value");
-
-
-static_assert(offsetof(struct if_info, dev) == 0,
-	      "Bad offsetof(struct if_info, dev)");
-
-static_assert(offsetof(struct if_info, ipv4_pub) == 16,
-	      "Bad offsetof(struct if_info, ipv4_pub)");
-
-static_assert(offsetof(struct if_info, ipv4) == 16 + (IPV4_L * 1),
-	      "Bad offsetof(struct if_info, ipv4)");
-
-static_assert(offsetof(struct if_info, ipv4_netmask) == 16 + (IPV4_L * 2),
-	      "Bad offsetof(struct if_info, ipv4_netmask)");
-
-static_assert(offsetof(struct if_info, ipv4_dgateway) == 16 + (IPV4_L * 3),
-	      "Bad offsetof(struct if_info, ipv4_dgateway)");
-
-#ifdef TEAVPN_IPV6_SUPPORT
-
-/*
- * TODO: Add IPv6 static assert.
- */
-static_assert(0, "Fixme: Add IPv6 static assert");
-
-#else /* #ifdef TEAVPN_IPV6_SUPPORT */
-
-static_assert(offsetof(struct if_info, ipv4_mtu) == 16 + (IPV4_L * 4),
-	      "Bad offsetof(struct if_info, mtu)");
-
-static_assert(sizeof(struct if_info) == 16 + (IPV4_L * 4) + sizeof(uint16_t),
-	      "Bad sizeof(struct if_info)");
-
-#endif  /* #ifdef TEAVPN_IPV6_SUPPORT */
-
-extern const char *data_dir;
-extern void show_version(void);
-extern bool teavpn2_auth(const char *username, const char *password,
-			 struct if_info *iff);
-
-static inline void *calloc_wrp(size_t nmemb, size_t size)
+void show_version(void);
+#ifdef CONFIG_TEAVPN_SERVER
+extern int run_server(int argc, char *argv[]);
+#else /* #ifdef CONFIG_TEAVPN_SERVER */
+static inline int run_server(int argc, char *argv[])
 {
-	int err;
-	void *ret = al64_calloc(nmemb, size);
-	if (unlikely(!ret)) {
-		err = errno;
-		/* The errno might change after pr_err, must backup! */
-		pr_err("calloc_wrp: " PRERF, PREAR(err));
-		errno = err;
-	}
-	return ret;
+	(void)argc;
+	(void)argv;
+	printf("Server mode is not supported in this build.\n");
+	return -ENOTSUP;
 }
+#endif /* #ifdef CONFIG_TEAVPN_SERVER */
 
-
-#if !defined(__clang__)
-/*
- * GCC false positive warnings are annoying!
- */
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Warray-bounds"
-#  pragma GCC diagnostic ignored "-Wstringop-overflow"
-#  pragma GCC diagnostic ignored "-Wstringop-truncation"
-#endif
-static inline char *strncpy2(char *__restrict__ dst,
-			     const char *__restrict__ src,
-			     size_t n)
+#ifdef CONFIG_TEAVPN_CLIENT
+extern int run_client(int argc, char *argv[]);
+#else /* #ifdef CONFIG_TEAVPN_CLIENT */
+static inline int run_client(int argc, char *argv[])
 {
-	char *ret = strncpy(dst, src, n);
-	ret[n - 1] = '\0';
-	return ret;
+	(void)argc;
+	(void)argv;
+	printf("Client mode is not supported in this build.\n");
+	return -ENOTSUP;
 }
-#if !defined(__clang__)
-#  pragma GCC diagnostic pop
-#endif
+#endif /* #ifdef CONFIG_TEAVPN_CLIENT */
 
-#if defined(__x86_64__)
-#  include <teavpn2/arch/x86/linux.h>
-#else
-#  include <teavpn2/arch/generic/linux.h>
-#endif
+extern uint8_t g_verbose;
 
-#ifdef CONFIG_HPC_EMERGENCY
-#  include <emerg/emerg.h>
-#else
-#  define WARN()
-#  define WARN_ONCE()
-#  define WARN_ON(COND) ({ COND; })
-#  define WARN_ON_ONCE(COND) ({ COND; })
-#  define BUG()
-#  define BUG_ON(COND) ({ COND; })
-#endif
-
-#ifndef cpu_relax
-#if defined(__x86_64__)
-static inline void __cpu_relax(void)
-{
-       __asm__ __volatile__ ("pause" ::: "memory");
-}
-#else
-static inline void __cpu_relax(void)
-{
-       __asm__ __volatile__ ("" ::: "memory");
-}
-#endif
-#define cpu_relax() __cpu_relax()
-#endif
-
-#endif
+#endif /* #ifndef TEAVPN2__COMMON_H */
