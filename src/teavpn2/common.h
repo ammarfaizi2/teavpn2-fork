@@ -19,6 +19,7 @@
 #include <teavpn2/print.h>
 #include <teavpn2/allocator.h>
 #include <teavpn2/compiler_attributes.h>
+#include <teavpn2/helpers.h>
 
 #ifndef unlikely
 #  define unlikely(X) __builtin_expect((bool)(X), 0)
