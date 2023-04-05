@@ -15,7 +15,7 @@ enum {
 	EVT_IO_URING = 1
 };
 
-static int select_server_event_loop(struct srv_cfg *cfg)
+__cold static int select_server_event_loop(struct srv_cfg *cfg)
 {
 	const char *ev = cfg->sock.event_loop;
 
@@ -30,7 +30,7 @@ static int select_server_event_loop(struct srv_cfg *cfg)
 	return -EINVAL;
 }
 
-static int init_server_udp_socket(struct srv_udp_ctx *ctx)
+__cold static int init_server_udp_socket(struct srv_udp_ctx *ctx)
 {
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
 	struct sockaddr_storage addr;
@@ -64,15 +64,35 @@ static int init_server_udp_socket(struct srv_udp_ctx *ctx)
 	return 0;
 }
 
-static int init_server_udp_context(struct srv_udp_ctx *ctx)
+__cold static void destroy_server_udp_socket(struct srv_udp_ctx *ctx)
 {
+	if (ctx->udp_fd >= 0)
+		close(ctx->udp_fd);
+
+	if (ctx->sessions)
+		destroy_server_udp_sessions(ctx->sessions);
+}
+
+__cold static int init_server_udp_context(struct srv_udp_ctx *ctx)
+{
+	uint16_t max_conn = ctx->cfg->sock.max_conn;
 	int ret;
 
 	ret = init_server_udp_socket(ctx);
 	if (ret < 0)
 		return ret;
+	ret = init_server_free_slot(&ctx->sess_slot, max_conn);
+	if (ret < 0)
+		goto out_err;
+	ret = init_server_udp_sessions(&ctx->sessions, max_conn);
+	if (ret < 0)
+		goto out_err;
 
 	return 0;
+
+out_err:
+	destroy_server_udp_socket(ctx);
+	return ret;
 }
 
 int run_server_udp(struct srv_cfg *cfg)
@@ -85,6 +105,8 @@ int run_server_udp(struct srv_cfg *cfg)
 		return ev;
 
 	memset(&ctx, 0, sizeof(ctx));
+	ctx.udp_fd = -1;
+	ctx.epl_fd = -1;
 
 	ctx.cfg = cfg;
 	ret = init_server_udp_context(&ctx);

@@ -329,7 +329,7 @@ add_c_and_cxx_flag "-fdata-sections";
 add_c_and_cxx_flag "-ffunction-sections";
 add_c_and_cxx_flag "-fno-strict-aliasing";
 add_c_and_cxx_flag "-fvisibility=hidden";
-# add_c_and_cxx_flag "-flto" && LDFLAGS="-flto ${LDFLAGS}";
+add_c_and_cxx_flag "-flto" && LDFLAGS="-flto ${LDFLAGS}";
 add_c_and_cxx_flag "-fpie -fPIE" && LDFLAGS="-fpie -fPIE ${LDFLAGS}";
 
 printf "\n%s:\n" "Misc flags";

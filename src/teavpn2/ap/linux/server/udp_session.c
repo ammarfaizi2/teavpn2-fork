@@ -9,7 +9,7 @@
 #include <teavpn2/helpers.h>
 #include <teavpn2/ap/linux/server.h>
 
-int init_server_udp_sessions(struct udp_sess **sessions_p, uint16_t n)
+__cold int init_server_udp_sessions(struct udp_sess **sessions_p, uint16_t n)
 {
 	struct udp_sess *sessions;
 	size_t size;
@@ -22,4 +22,9 @@ int init_server_udp_sessions(struct udp_sess **sessions_p, uint16_t n)
 	memset(sessions, 0, size);
 	*sessions_p = sessions;
 	return 0;
+}
+
+__cold void destroy_server_udp_sessions(struct udp_sess *sessions)
+{
+	free(sessions);
 }

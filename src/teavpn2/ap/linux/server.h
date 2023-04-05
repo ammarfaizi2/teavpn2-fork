@@ -10,6 +10,7 @@
 #include <teavpn2/common.h>
 #include <teavpn2/server.h>
 #include <teavpn2/packet.h>
+#include <teavpn2/helpers.h>
 #include <time.h>
 
 struct srv_cfg;
@@ -148,5 +149,6 @@ extern int run_server_udp(struct srv_cfg *cfg);
 extern int run_server_udp_epoll(struct srv_udp_ctx *ctx);
 extern int init_server_free_slot(struct free_slot *slot, uint16_t n);
 extern int init_server_udp_sessions(struct udp_sess **sessions_p, uint16_t n);
+extern void destroy_server_udp_sessions(struct udp_sess *sessions);
 
 #endif /* #ifndef TEAVPN2__AP__LINUX__SERVER_H */
