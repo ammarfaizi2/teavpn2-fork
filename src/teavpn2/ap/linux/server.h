@@ -32,7 +32,7 @@ struct udp_sess {
 	 */
 	union {
 		uint8_t			__ipv4[4];
-		struct in_addr		 ipv4;
+		struct in_addr		ipv4;
 	};
 
 	/*
