@@ -169,6 +169,7 @@ static inline int run_client(int argc, char *argv[])
 }
 #endif /* #ifdef CONFIG_TEAVPN_CLIENT */
 
-extern uint8_t g_verbose;
+extern uint8_t __notice_level;
+#include <teavpn2/print.h>
 
 #endif /* #ifndef TEAVPN2__COMMON_H */

@@ -9,7 +9,8 @@ DEP_DIRS += $(BASE_DEP_DIR)/src/teavpn2
 
 OBJ_CC += \
 	$(BASE_DIR)/src/teavpn2/helpers.o \
-	$(BASE_DIR)/src/teavpn2/main.o
+	$(BASE_DIR)/src/teavpn2/main.o \
+	$(BASE_DIR)/src/teavpn2/print.o
 
 ifeq ($(CONFIG_TEAVPN_SERVER),y)
 include $(BASE_DIR)/src/teavpn2/server/Makefile

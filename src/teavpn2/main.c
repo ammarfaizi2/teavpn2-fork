@@ -7,8 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 
-uint8_t g_verbose;
-
 __cold void show_version(void)
 {
 	puts("TeaVPN2 " TEAVPN2_VERSION);

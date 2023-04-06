@@ -7,4 +7,5 @@
 DEP_DIRS += $(BASE_DEP_DIR)/src/teavpn2/server
 
 OBJ_CC += \
-	$(BASE_DIR)/src/teavpn2/server/entry.o
+	$(BASE_DIR)/src/teavpn2/server/entry.o \
+	$(BASE_DIR)/src/teavpn2/server/helpers.o

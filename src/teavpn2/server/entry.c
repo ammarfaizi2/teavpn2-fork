@@ -146,8 +146,7 @@ __cold static void show_server_help(const char *app)
 
 __cold static void print_server_einval(const char *app)
 {
-	fprintf(stderr, "\nTry `%s server --help' for more information.\n",
-		app);
+	fprintf(stderr, "\nTry `%s server --help' for more information.\n", app);
 }
 
 __cold static int parse_argv_server(int argc, char *argv[], struct srv_cfg *cfg)
@@ -170,9 +169,9 @@ __cold static int parse_argv_server(int argc, char *argv[], struct srv_cfg *cfg)
 			show_version();
 			return 1;
 		case 'v':
-			g_verbose = 1;
+			__notice_level = 1;
 			if (optarg)
-				g_verbose = (uint8_t)atoi(optarg);
+				__notice_level = (uint8_t)atoi(optarg);
 			break;
 		case 'c':
 			sys->cfg_file = optarg;

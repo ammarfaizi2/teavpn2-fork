@@ -20,43 +20,49 @@ __cold static int select_server_event_loop(struct srv_cfg *cfg)
 	const char *ev = cfg->sock.event_loop;
 
 	if (!strcmp(ev, "epoll")) {
+		pr_notice("Using epoll as event loop");
 		return EVT_EPOLL;
 	} else if (!strcmp(ev, "io_uring")) {
-		fprintf(stderr, "event_loop=io_uring is not supported yet\n");
+		pr_err("event_loop=io_uring is not supported yet");
 		return -EOPNOTSUPP;
 	}
 
-	fprintf(stderr, "Invalid event loop: %s (enum values: epoll, io_uring)\n", ev);
+	pr_err("Invalid event loop: %s (valid values: epoll, io_uring)", ev);
 	return -EINVAL;
 }
 
-__cold static int init_server_udp_socket(struct srv_udp_ctx *ctx)
+__cold static int init_server_udp_socket(struct srv_udp_ctx *ctx, int ev)
 {
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
 	struct sockaddr_storage addr;
+	int type = SOCK_DGRAM;
 	int ret;
 	int fd;
 
 	memset(&addr, 0, sizeof(addr));
 	ret = str_to_sockaddr(&addr, sock->bind_addr, sock->bind_port);
 	if (ret < 0) {
-		fprintf(stderr, "Invalid bind address: %s:%hu\n",
-			sock->bind_addr, sock->bind_port);
+		pr_err("str_to_sockaddr(%s:%hu): " PRERF, sock->bind_addr,
+		       sock->bind_port, PREAR(-ret));
 		return ret;
 	}
 
-	fd = socket(addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+	if (ev == EVT_EPOLL)
+		type |= SOCK_NONBLOCK;
+
+	fd = __sys_socket(addr.ss_family, type, IPPROTO_UDP);
 	if (fd < 0) {
 		ret = -errno;
-		perror("socket");
+		pr_err("socket(): " PRERF, PREAR(-ret));
 		return ret;
 	}
 
-	ret = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+	ret = __sys_bind(fd, (struct sockaddr *)&addr, sizeof(addr));
 	if (ret < 0) {
 		ret = -errno;
-		close(fd);
-		perror("bind");
+		__sys_close(fd);
+		pr_err("bind(%s:%hu) " PRERF, sock->bind_addr, sock->bind_port,
+		       PREAR(-ret));
 		return ret;
 	}
 
@@ -67,30 +73,37 @@ __cold static int init_server_udp_socket(struct srv_udp_ctx *ctx)
 __cold static void destroy_server_udp_socket(struct srv_udp_ctx *ctx)
 {
 	if (ctx->udp_fd >= 0)
-		close(ctx->udp_fd);
+		__sys_close(ctx->udp_fd);
 
 	if (ctx->sessions)
 		destroy_server_udp_sessions(ctx->sessions);
 }
 
-__cold static int init_server_udp_context(struct srv_udp_ctx *ctx)
+__cold static int __run_server_udp(struct srv_udp_ctx *ctx, int ev)
 {
 	uint16_t max_conn = ctx->cfg->sock.max_conn;
 	int ret;
 
-	ret = init_server_udp_socket(ctx);
+	ret = init_server_udp_socket(ctx, ev);
 	if (ret < 0)
 		return ret;
-	ret = init_server_free_slot(&ctx->sess_slot, max_conn);
+	ret = init_free_slot(&ctx->sess_slot, max_conn);
 	if (ret < 0)
-		goto out_err;
+		goto out;
 	ret = init_server_udp_sessions(&ctx->sessions, max_conn);
 	if (ret < 0)
-		goto out_err;
+		goto out;
 
-	return 0;
+	switch (ev) {
+	case EVT_EPOLL:
+		ret = run_server_udp_epoll(ctx);
+		break;
+	case EVT_IO_URING:
+		ret = -EOPNOTSUPP;
+		break;
+	}
 
-out_err:
+out:
 	destroy_server_udp_socket(ctx);
 	return ret;
 }
@@ -109,7 +122,7 @@ int run_server_udp(struct srv_cfg *cfg)
 	ctx.epl_fd = -1;
 
 	ctx.cfg = cfg;
-	ret = init_server_udp_context(&ctx);
+	ret = __run_server_udp(&ctx, ev);
 	if (ret < 0)
 		return ret;
 

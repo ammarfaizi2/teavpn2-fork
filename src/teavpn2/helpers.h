@@ -13,6 +13,7 @@
 #include <ctype.h>
 
 #ifdef CONFIG_LINUX
+#include <teavpn2/arch/linux_syscall.h>
 #include <teavpn2/ap/linux/mutex.h>
 #endif
 
