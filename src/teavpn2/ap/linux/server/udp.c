@@ -52,14 +52,12 @@ __cold static int init_server_udp_socket(struct srv_udp_ctx *ctx, int ev)
 
 	fd = __sys_socket(addr.ss_family, type, IPPROTO_UDP);
 	if (fd < 0) {
-		ret = -errno;
 		pr_err("socket(): " PRERF, PREAR(-ret));
 		return ret;
 	}
 
 	ret = __sys_bind(fd, (struct sockaddr *)&addr, sizeof(addr));
 	if (ret < 0) {
-		ret = -errno;
 		__sys_close(fd);
 		pr_err("bind(%s:%hu) " PRERF, sock->bind_addr, sock->bind_port,
 		       PREAR(-ret));
