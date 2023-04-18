@@ -313,6 +313,8 @@ fi;
 
 # Bring it back!
 set -e;
+p_conf_make "CC = %s\n" "${CC}";
+p_conf_make "CXX = %s\n" "${CXX}";
 p_conf_make "CFLAGS = %s\n" "${CFLAGS}";
 p_conf_make "CXXFLAGS = %s\n" "${CXXFLAGS}";
 p_conf_make "LDFLAGS = %s\n" "${LDFLAGS}";
