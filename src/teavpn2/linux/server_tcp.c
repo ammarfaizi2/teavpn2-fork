@@ -28,6 +28,7 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 		return -ret;
 	}
 
+	pr_debug("Created TCP socket fd (%d)", fd);
 	if (addr->ss_family == AF_INET)
 		len = sizeof(struct sockaddr_in);
 	else
@@ -70,8 +71,10 @@ static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
 
 static void server_tcp_destroy_ctx(struct srv_ctx_tcp *ctx)
 {
-	if (ctx->tcp_fd >= 0)
+	if (ctx->tcp_fd >= 0) {
+		pr_debug("Closing TCP fd (%d)", ctx->tcp_fd);
 		close_fd(&ctx->tcp_fd);
+	}
 }
 
 int run_server_tcp(struct srv_cfg *cfg)

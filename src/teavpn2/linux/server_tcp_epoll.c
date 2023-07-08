@@ -30,6 +30,11 @@ static void server_tcp_destroy_epoll(struct srv_ctx_tcp *ctx)
 	}
 }
 
+static int server_tcp_run_event_loop_epoll(struct srv_ctx_tcp *ctx)
+{
+	return 0;
+}
+
 int run_server_tcp_epoll(struct srv_ctx_tcp *ctx)
 {
 	int ret;
@@ -40,6 +45,7 @@ int run_server_tcp_epoll(struct srv_ctx_tcp *ctx)
 	if (ret < 0)
 		goto out;
 
+	ret = server_tcp_run_event_loop_epoll(ctx);
 out:
 	server_tcp_destroy_epoll(ctx);
 	return 0;
