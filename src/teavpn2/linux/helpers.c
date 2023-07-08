@@ -11,5 +11,5 @@ int close_fd(int *fd)
 
 	ret = __sys_close(*fd);
 	*fd = -1;
-	return ret; 
+	return ret;
 }
