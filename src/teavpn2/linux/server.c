@@ -26,10 +26,8 @@ int run_server_app(struct srv_cfg *cfg)
 	switch (cfg->sock.type) {
 	case SOCK_TYPE_UDP:
 		return run_server_udp(cfg);
-		break;
 	case SOCK_TYPE_TCP:
-		pr_err("TCP socket is currently not supported!");
-		return -EPROTONOSUPPORT;
+		return run_server_tcp(cfg);
 	default:
 		pr_err("Invalid socket type: %hhu", cfg->sock.type);
 		return -EINVAL;

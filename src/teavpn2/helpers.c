@@ -3,6 +3,7 @@
  * Copyright (C) 2023  Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
 
+#include <string.h>
 #include <teavpn2/common.h>
 #include <teavpn2/helpers.h>
 
@@ -28,6 +29,38 @@ int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
 	}
 
 	return -EINVAL;
+}
+
+int sockaddr_to_str(char *addr, const struct sockaddr_storage *ss)
+{
+	int family = ss->ss_family;
+	const void *raw_addr;
+	uint16_t port;
+
+	if (family != AF_INET && family != AF_INET6)
+		return -EINVAL;
+
+	if (family == AF_INET6) {
+		struct sockaddr_in6 *in6 = (void *)ss;
+		*addr++ = '[';
+		port = in6->sin6_port;
+		raw_addr = &in6->sin6_addr;
+	} else {
+		struct sockaddr_in *in = (void *)ss;
+		port = in->sin_port;
+		raw_addr = &in->sin_addr;
+	}
+
+	if (!inet_ntop(family, raw_addr, addr, INET6_ADDRSTRLEN))
+		return -errno;
+
+	addr += strlen(addr);
+	if (family == AF_INET6)
+		*addr++ = ']';
+
+	*addr++ = ':';
+	sprintf(addr, "%hu", ntohs(port));
+	return 0;
 }
 
 bool teavpn_check_uname(const char *u)

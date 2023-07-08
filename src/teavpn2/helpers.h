@@ -24,6 +24,16 @@
 extern int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
 			   uint16_t port);
 
+#define STR_IP_AND_PORT (INET6_ADDRSTRLEN + 32)
+/*
+ * Convert sockaddr to string.
+ *
+ * @param addr	The string buffer (must be at least STR_IP_AND_PORT in length).
+ * @param ss	Pointer to sockaddr_storage.
+ * @return	Return 0 on success, otherwise return -EINVAL.
+ */
+extern int sockaddr_to_str(char *addr, const struct sockaddr_storage *ss);
+
 /*
  * Validate username. Username must be between 3 to 255 characters, and
  * only alphanumeric, underscore, and dash are allowed.

@@ -8,11 +8,11 @@ uint8_t __log_level = __LOG_INFO;
 
 static pthread_mutex_t get_time_lock = PTHREAD_MUTEX_INITIALIZER;
 static const char __log_level_str[][8] = {
-	"EMERG",
-	"ERROR",
-	"WARN ",
-	"INFO ",
-	"DEBUG",
+	"emerg",
+	"error",
+	"warn ",
+	"info ",
+	"debug",
 };
 
 void set_log_level(uint8_t level)

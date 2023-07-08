@@ -9,9 +9,11 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 {
 	struct sockaddr_storage *addr = &ctx->bind_addr;
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
+	char buf[STR_IP_AND_PORT];
 	socklen_t len;
 	int ret, fd;
 
+	memset(addr, 0, sizeof(*addr));
 	ret = str_to_sockaddr(addr, sock->bind_addr, sock->bind_port);
 	if (ret) {
 		printf("Invalid bind address %s (port = %hu)", sock->bind_addr,
@@ -45,6 +47,8 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 		goto out_err;
 	}
 
+	sockaddr_to_str(buf, addr);
+	pr_info("Listening on %s", buf);
 	ctx->tcp_fd = fd;
 	return 0;
 
@@ -56,9 +60,6 @@ out_err:
 static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
 {
 	int ret;
-
-	ctx->epoll_fd = -1;
-	ctx->tcp_fd = -1;
 
 	ret = server_tcp_init_sock(ctx);
 	if (ret < 0)
@@ -83,12 +84,14 @@ int run_server_tcp(struct srv_cfg *cfg)
 
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = cfg;
+	ctx.epoll_fd = -1;
+	ctx.tcp_fd = -1;
 
-	ret = server_tcp_init_ctx(&ctx);
+	ret = select_server_event_loop(cfg);
 	if (ret < 0)
 		goto out;
 
-	ret = select_server_event_loop(cfg);
+	ret = server_tcp_init_ctx(&ctx);
 	if (ret < 0)
 		goto out;
 
