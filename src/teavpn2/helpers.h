@@ -81,7 +81,7 @@ static inline char *strecpy(char *__restrict__ dst,
 	return ret;
 }
 
-static inline socklen_t sock_len_family(int family)
+static inline socklen_t get_sock_family_len(int family)
 {
 	return (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
 }
