@@ -5,28 +5,17 @@
 
 #include <teavpn2/server.h>
 
-static int server_init_tcp_socket(struct srv_ctx *ctx)
-{
-	return 0;
-}
-
-static int server_init_ctx(struct srv_ctx *ctx)
-{
-
-	return 0;
-}
-
 int run_server_app(struct srv_cfg *cfg)
 {
-	struct srv_ctx_tcp ctx;
-	int ret;
-
-	memset(&ctx, 0, sizeof(ctx));
-	ctx.cfg = cfg;
-
-	ret = server_init_ctx(&ctx);
-	if (ret < 0)
-		return ret;
-
-	return ret;
+	switch (cfg->sock.type) {
+	case SOCK_TYPE_UDP:
+		return run_server_udp(cfg);
+		break;
+	case SOCK_TYPE_TCP:
+		pr_err("TCP socket is currently not supported!");
+		return -EPROTONOSUPPORT;
+	default:
+		pr_err("Invalid socket type: %hhu", cfg->sock.type);
+		return -EINVAL;
+	}
 }

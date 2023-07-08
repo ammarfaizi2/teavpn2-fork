@@ -43,6 +43,7 @@ struct srv_ctx_tcp {
 	int			tcp_fd;
 	int			*tun_fds;
 
+	struct sockaddr_storage	bind_addr;
 	struct client_tcp	*clients;
 	mutex_t			clients_lock;
 
@@ -50,5 +51,7 @@ struct srv_ctx_tcp {
 };
 
 int run_server_app(struct srv_cfg *cfg);
+int run_server_udp(struct srv_cfg *cfg);
+int run_server_tcp(struct srv_cfg *cfg);
 
 #endif /* #ifndef TEAVPN2__AP__LINUX__SERVER_H */
