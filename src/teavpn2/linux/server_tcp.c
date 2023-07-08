@@ -72,9 +72,6 @@ static void server_tcp_destroy_ctx(struct srv_ctx_tcp *ctx)
 {
 	if (ctx->tcp_fd >= 0)
 		close_fd(&ctx->tcp_fd);
-
-	if (ctx->epoll_fd >= 0)
-		close_fd(&ctx->epoll_fd);
 }
 
 int run_server_tcp(struct srv_cfg *cfg)

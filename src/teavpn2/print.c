@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <teavpn2/print.h>
 
-uint8_t __log_level = __LOG_INFO;
+uint8_t __log_level = __LOG_DEBUG;
 
 static pthread_mutex_t get_time_lock = PTHREAD_MUTEX_INITIALIZER;
 static const char __log_level_str[][8] = {
@@ -52,7 +52,7 @@ void __pr_log(uint8_t level, const char *file, int lineno, const char *fmt, ...)
 
 	get_time(time_buf);
 
-	if (level < ARRAY_SIZE(__log_level_str))
+	if (level <= ARRAY_SIZE(__log_level_str))
 		lv = __log_level_str[level - 1];
 	else
 		lv = "UNDEF";
@@ -72,7 +72,7 @@ void __pr_log(uint8_t level, const char *fmt, ...)
 
 	get_time(time_buf);
 
-	if (level < ARRAY_SIZE(__log_level_str))
+	if (level <= ARRAY_SIZE(__log_level_str))
 		lv = __log_level_str[level - 1];
 	else
 		lv = "UNDEF";
