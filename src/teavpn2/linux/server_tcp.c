@@ -13,7 +13,6 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 	socklen_t len;
 	int ret, fd;
 
-	memset(addr, 0, sizeof(*addr));
 	ret = str_to_sockaddr(addr, sock->bind_addr, sock->bind_port);
 	if (ret) {
 		printf("Invalid bind address %s (port = %hu)", sock->bind_addr,
@@ -21,11 +20,10 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 		return ret;
 	}
 
-	fd = socket(addr->ss_family, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	fd = __sys_socket(addr->ss_family, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (fd < 0) {
-		ret = errno;
-		pr_err("socket(): %s", strerror(ret));
-		return -ret;
+		pr_err("socket(): %s", strerror(-fd));
+		return fd;
 	}
 
 	pr_debug("Created TCP socket fd (%d)", fd);
@@ -34,17 +32,15 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 	else
 		len = sizeof(struct sockaddr_in6);
 
-	ret = bind(fd, (struct sockaddr *)addr, len);
+	ret = __sys_bind(fd, (struct sockaddr *)addr, len);
 	if (ret < 0) {
-		ret = errno;
-		pr_err("bind(): %s", strerror(ret));
+		pr_err("bind(): %s", strerror(-ret));
 		goto out_err;
 	}
 
-	ret = listen(fd, sock->backlog);
+	ret = __sys_listen(fd, sock->backlog);
 	if (ret < 0) {
-		ret = errno;
-		pr_err("listen(): %s", strerror(ret));
+		pr_err("listen(): %s", strerror(-ret));
 		goto out_err;
 	}
 
@@ -55,7 +51,7 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 
 out_err:
 	close(fd);
-	return -ret;
+	return ret;
 }
 
 static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
