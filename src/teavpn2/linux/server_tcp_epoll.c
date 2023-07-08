@@ -16,11 +16,10 @@ static int server_tcp_init_epoll(struct srv_ctx_tcp *ctx)
 		ctx->workers[i].epoll_fd = -1;
 
 	for (i = 0; i < sys->max_thread; i++) {
-		fd = epoll_create(256);
+		fd = __sys_epoll_create(256);
 		if (fd < 0) {
-			fd = errno;
-			pr_err("epoll_create(): %s", strerror(fd));
-			return -fd;
+			pr_err("epoll_create(): %s", strerror(-fd));
+			return fd;
 		}
 
 		pr_debug("Created epoll fd (%d)", fd);
@@ -36,8 +35,11 @@ static void close_all_epoll_fds(struct srv_ctx_tcp *ctx)
 	uint8_t i;
 
 	for (i = 0; i < sys->max_thread; i++) {
-		if (ctx->workers[i].epoll_fd >= 0)
-			close_fd(&ctx->workers[i].epoll_fd);
+		if (ctx->workers[i].epoll_fd < 0)
+			continue;
+
+		pr_debug("Closing epoll fd (%d)", ctx->workers[i].epoll_fd);
+		close_fd(&ctx->workers[i].epoll_fd);
 	}
 }
 
