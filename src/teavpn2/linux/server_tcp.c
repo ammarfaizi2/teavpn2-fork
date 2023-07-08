@@ -27,11 +27,8 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 	}
 
 	pr_debug("Created TCP socket fd (%d)", fd);
-	if (addr->ss_family == AF_INET)
-		len = sizeof(struct sockaddr_in);
-	else
-		len = sizeof(struct sockaddr_in6);
 
+	len = sock_len_family(addr->ss_family);
 	ret = __sys_bind(fd, (struct sockaddr *)addr, len);
 	if (ret < 0) {
 		pr_err("bind(): %s", strerror(-ret));

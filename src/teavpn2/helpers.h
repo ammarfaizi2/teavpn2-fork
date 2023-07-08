@@ -81,6 +81,11 @@ static inline char *strecpy(char *__restrict__ dst,
 	return ret;
 }
 
+static inline socklen_t sock_len_family(int family)
+{
+	return (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+}
+
 #ifdef CONFIG_LINUX
 #include <teavpn2/arch/linux_syscall.h>
 #include <teavpn2/linux/mutex.h>
