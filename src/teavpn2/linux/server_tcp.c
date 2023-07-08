@@ -69,15 +69,11 @@ static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
 
 static void server_tcp_destroy_ctx(struct srv_ctx_tcp *ctx)
 {
-	if (ctx->tcp_fd >= 0) {
-		close(ctx->tcp_fd);
-		ctx->tcp_fd = -1;
-	}
+	if (ctx->tcp_fd >= 0)
+		close_fd(&ctx->tcp_fd);
 
-	if (ctx->epoll_fd >= 0) {
-		close(ctx->epoll_fd);
-		ctx->epoll_fd = -1;
-	}
+	if (ctx->epoll_fd >= 0)
+		close_fd(&ctx->epoll_fd);
 }
 
 int run_server_tcp(struct srv_cfg *cfg)
@@ -91,6 +87,19 @@ int run_server_tcp(struct srv_cfg *cfg)
 	ret = server_tcp_init_ctx(&ctx);
 	if (ret < 0)
 		goto out;
+
+	ret = select_server_event_loop(cfg);
+	if (ret < 0)
+		goto out;
+
+	switch (ret) {
+	case EVT_EPOLL:
+		ret = run_server_tcp_epoll(&ctx);
+		break;
+	default:
+		ret = -EOPNOTSUPP;
+		break;
+	}
 
 out:
 	server_tcp_destroy_ctx(&ctx);

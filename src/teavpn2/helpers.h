@@ -7,15 +7,11 @@
 #define TEAVPN2__HELPERS_H
 
 #include <arpa/inet.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-
-#ifdef CONFIG_LINUX
-#include <teavpn2/arch/linux_syscall.h>
-#include <teavpn2/linux/mutex.h>
-#endif
 
 /*
  * Convert string to sockaddr.
@@ -74,5 +70,11 @@ static inline char *strecpy(char *__restrict__ dst,
 	dst[len - 1] = '\0';
 	return ret;
 }
+
+#ifdef CONFIG_LINUX
+#include <teavpn2/arch/linux_syscall.h>
+#include <teavpn2/linux/mutex.h>
+#include <teavpn2/linux/helpers.h>
+#endif
 
 #endif /* #ifndef TEAVPN2__HELPERS_H */

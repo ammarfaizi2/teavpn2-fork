@@ -57,7 +57,7 @@ void __pr_log(uint8_t level, const char *file, int lineno, const char *fmt, ...)
 	else
 		lv = "UNDEF";
 
-	fprintf(stdout, buf, sizeof(buf), "[%s][%s][%s:%d] %s\n", time_buf, lv, file, lineno, buf);
+	fprintf(stdout, "[%s][%s][%s:%d] %s\n", time_buf, lv, file, lineno, buf);
 }
 #else
 void __pr_log(uint8_t level, const char *fmt, ...)
@@ -77,6 +77,6 @@ void __pr_log(uint8_t level, const char *fmt, ...)
 	else
 		lv = "UNDEF";
 
-	fprintf(stdout, buf, sizeof(buf), "[%s][%s] %s\n", time_buf, lv, buf);
+	fprintf(stdout, "[%s][%s] %s\n", time_buf, lv, buf);
 }
 #endif

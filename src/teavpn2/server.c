@@ -54,7 +54,7 @@ static const char short_opts[] = "hVv::"
  * Socket configuration default values.
  */
 static const bool d_use_encryption = false;
-static const uint8_t d_sock_type = SOCK_DGRAM;
+static const uint8_t d_sock_type = SOCK_TYPE_TCP;
 static const char d_bind_addr[] = "::";
 static const uint16_t d_bind_port = 61111;
 static const int d_backlog = 128;

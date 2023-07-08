@@ -50,8 +50,15 @@ struct srv_ctx_tcp {
 	struct srv_cfg		*cfg;
 };
 
+enum {
+	EVT_EPOLL,
+	EVT_IO_URING,
+};
+
+int select_server_event_loop(struct srv_cfg *cfg);
 int run_server_app(struct srv_cfg *cfg);
 int run_server_udp(struct srv_cfg *cfg);
 int run_server_tcp(struct srv_cfg *cfg);
+int run_server_tcp_epoll(struct srv_ctx_tcp *ctx);
 
 #endif /* #ifndef TEAVPN2__AP__LINUX__SERVER_H */
