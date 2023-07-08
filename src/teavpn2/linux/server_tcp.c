@@ -60,11 +60,16 @@ out_err:
 
 static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
 {
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
 	int ret;
 
 	ret = server_tcp_init_sock(ctx);
 	if (ret < 0)
 		return ret;
+
+	ctx->workers = calloc(sys->max_thread, sizeof(*ctx->workers));
+	if (!ctx->workers)
+		return -ENOMEM;
 
 	return 0;
 }
@@ -75,6 +80,8 @@ static void server_tcp_destroy_ctx(struct srv_ctx_tcp *ctx)
 		pr_debug("Closing TCP fd (%d)", ctx->tcp_fd);
 		close_fd(&ctx->tcp_fd);
 	}
+
+	free(ctx->workers);
 }
 
 int run_server_tcp(struct srv_cfg *cfg)
@@ -84,7 +91,6 @@ int run_server_tcp(struct srv_cfg *cfg)
 
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = cfg;
-	ctx.epoll_fd = -1;
 	ctx.tcp_fd = -1;
 
 	ret = select_server_event_loop(cfg);

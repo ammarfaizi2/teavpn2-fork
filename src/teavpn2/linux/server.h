@@ -38,8 +38,15 @@ struct client_tcp {
 	struct pkt		cpkt;
 };
 
-struct srv_ctx_tcp {
+struct srv_ctx_tcp;
+
+struct srv_wrk_tcp {
 	int			epoll_fd;
+	int			tun_fd;
+	struct srv_ctx_tcp	*ctx;
+};
+
+struct srv_ctx_tcp {
 	int			tcp_fd;
 	int			*tun_fds;
 
@@ -47,6 +54,7 @@ struct srv_ctx_tcp {
 	struct client_tcp	*clients;
 	mutex_t			clients_lock;
 
+	struct srv_wrk_tcp	*workers;
 	struct srv_cfg		*cfg;
 };
 

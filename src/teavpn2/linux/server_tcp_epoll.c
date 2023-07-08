@@ -8,26 +8,42 @@
 
 static int server_tcp_init_epoll(struct srv_ctx_tcp *ctx)
 {
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
+	uint8_t i;
 	int fd;
 
-	fd = epoll_create(256);
-	if (fd < 0) {
-		fd = errno;
-		pr_err("epoll_create(): %s", strerror(fd));
-		return -fd;
+	for (i = 0; i < sys->max_thread; i++)
+		ctx->workers[i].epoll_fd = -1;
+
+	for (i = 0; i < sys->max_thread; i++) {
+		fd = epoll_create(256);
+		if (fd < 0) {
+			fd = errno;
+			pr_err("epoll_create(): %s", strerror(fd));
+			return -fd;
+		}
+
+		pr_debug("Created epoll fd (%d)", fd);
+		ctx->workers[i].epoll_fd = fd;
 	}
 
-	ctx->epoll_fd = fd;
-	pr_debug("Created epoll fd (%d)", fd);
 	return 0;
+}
+
+static void close_all_epoll_fds(struct srv_ctx_tcp *ctx)
+{
+	struct srv_cfg_sys *sys = &ctx->cfg->sys;
+	uint8_t i;
+
+	for (i = 0; i < sys->max_thread; i++) {
+		if (ctx->workers[i].epoll_fd >= 0)
+			close_fd(&ctx->workers[i].epoll_fd);
+	}
 }
 
 static void server_tcp_destroy_epoll(struct srv_ctx_tcp *ctx)
 {
-	if (ctx->epoll_fd >= 0) {
-		pr_debug("Closing epoll fd (%d)", ctx->epoll_fd);
-		close_fd(&ctx->epoll_fd);
-	}
+	close_all_epoll_fds(ctx);
 }
 
 static int server_tcp_run_event_loop_epoll(struct srv_ctx_tcp *ctx)
@@ -38,8 +54,6 @@ static int server_tcp_run_event_loop_epoll(struct srv_ctx_tcp *ctx)
 int run_server_tcp_epoll(struct srv_ctx_tcp *ctx)
 {
 	int ret;
-
-	ctx->epoll_fd = -1;
 
 	ret = server_tcp_init_epoll(ctx);
 	if (ret < 0)
