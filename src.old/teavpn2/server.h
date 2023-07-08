@@ -51,8 +51,4 @@ struct srv_cfg {
 
 extern int run_server(int argc, char *argv[]);
 
-#ifdef CONFIG_LINUX
-#include <teavpn2/linux/server.h>
-#endif
-
 #endif /* #ifndef TEAVPN2__SERVER__SERVER_H */

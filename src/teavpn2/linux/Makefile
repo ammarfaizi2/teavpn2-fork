@@ -7,10 +7,7 @@
 # Copyright (C) 2021  Ammar Faizi
 #
 
-INCLUDE_DIR += -I$(BASE_DIR)/src
-DEP_DIRS += $(BASE_DEP_DIR)/src
-
-OBJ_CC += $(BASE_DIR)/src/main.o
-
-include $(BASE_DIR)/src/inih/Makefile
-include $(BASE_DIR)/src/teavpn2/Makefile
+DEP_DIRS += $(BASE_DEP_DIR)/src/teavpn2/linux
+OBJ_CC += \
+	$(BASE_DIR)/src/teavpn2/linux/mutex.o \
+	$(BASE_DIR)/src/teavpn2/linux/server.o

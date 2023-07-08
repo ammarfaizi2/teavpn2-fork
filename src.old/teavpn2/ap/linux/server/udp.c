@@ -85,9 +85,11 @@ __cold static int __run_server_udp(struct srv_udp_ctx *ctx, int ev)
 	ret = init_server_udp_socket(ctx, ev);
 	if (ret < 0)
 		return ret;
+
 	ret = init_free_slot(&ctx->sess_slot, max_conn);
 	if (ret < 0)
 		goto out;
+
 	ret = init_server_udp_sessions(&ctx->sessions, max_conn);
 	if (ret < 0)
 		goto out;

@@ -13,11 +13,12 @@
 
 __cold static int init_server_udp_epoll(struct srv_udp_ctx *ctx)
 {
+	uint32_t max_conn = ctx->cfg->sock.max_conn;
 	int ret;
 
-	ret = __sys_epoll_create(ctx->cfg->sock.max_conn);
-	if (ret < 0) {
-		pr_err("epoll_create(): " PRERF, PREAR(-ret));
+	ret = __sys_epoll_create(max_conn);
+	if (unlikely(ret < 0)) {
+		pr_err("epoll_create(%u): " PRERF, max_conn, PREAR(-ret));
 		return ret;
 	}
 
@@ -36,8 +37,7 @@ __hot static int epoll_add(int epl_fd, int fd, uint32_t events,
 
 	ret = __sys_epoll_ctl(epl_fd, EPOLL_CTL_ADD, fd, &ev);
 	if (unlikely(ret < 0)) {
-		pr_err("epoll_ctl(%d, EPOLL_CTL_ADD, %d): " PRERF, epl_fd, fd,
-		       PREAR(-ret));
+		pr_err("epoll_add(%d, %d): " PRERF, epl_fd, fd, PREAR(-ret));
 		return ret;
 	}
 
@@ -50,8 +50,7 @@ __hot static int epoll_del(int epl_fd, int fd)
 
 	ret = __sys_epoll_ctl(epl_fd, EPOLL_CTL_DEL, fd, NULL);
 	if (unlikely(ret < 0)) {
-		pr_err("epoll_ctl(%d, EPOLL_CTL_DEL, %d): " PRERF, epl_fd, fd,
-		       PREAR(-ret));
+		pr_err("epoll_del(%d, %d): " PRERF, epl_fd, fd, PREAR(-ret));
 		return ret;
 	}
 

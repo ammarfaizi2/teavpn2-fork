@@ -10,7 +10,5 @@
 INCLUDE_DIR += -I$(BASE_DIR)/src
 DEP_DIRS += $(BASE_DEP_DIR)/src
 
-OBJ_CC += $(BASE_DIR)/src/main.o
-
-include $(BASE_DIR)/src/inih/Makefile
+include $(BASE_DIR)/src/ext/Makefile
 include $(BASE_DIR)/src/teavpn2/Makefile
