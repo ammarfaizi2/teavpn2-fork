@@ -11,7 +11,7 @@
 						\
 	__asm__ volatile (			\
 		"syscall"			\
-		: "+r" (__rax)  /* %rax */	\
+		: "+a" (__rax)  /* %rax */	\
 		:				\
 		: "memory", "rcx", "r11"	\
 	);					\
@@ -23,7 +23,7 @@
 						\
 	__asm__ volatile (			\
 		"syscall"			\
-		: "+r" (__rax)  /* %rax */	\
+		: "+a" (__rax)  /* %rax */	\
 		: "D" (A)       /* %rdi */	\
 		: "memory", "rcx", "r11"	\
 	);					\
@@ -35,7 +35,7 @@
 						\
 	__asm__ volatile (			\
 		"syscall"			\
-		: "+r" (__rax)	/* %rax */	\
+		: "+a" (__rax)	/* %rax */	\
 		: "D" (A),      /* %rdi */	\
 		  "S" (B)       /* %rsi */	\
 		: "memory", "rcx", "r11"	\
@@ -48,7 +48,7 @@
 						\
 	__asm__ volatile (			\
 		"syscall"			\
-		: "+r" (__rax)	/* %rax */	\
+		: "+a" (__rax)	/* %rax */	\
 		: "D" (A),      /* %rdi */	\
 		  "S" (B),      /* %rsi */	\
 		  "d" (C)       /* %rdx */	\
@@ -63,7 +63,7 @@
 								\
 	__asm__ volatile (					\
 		"syscall"					\
-		: "+r" (__rax)	/* %rax */			\
+		: "+a" (__rax)	/* %rax */			\
 		: "D" (A),      /* %rdi */			\
 		  "S" (B),      /* %rsi */			\
 		  "d" (C),      /* %rdx */			\
@@ -80,7 +80,7 @@
 								\
 	__asm__ volatile (					\
 		"syscall"					\
-		: "+r" (__rax)	/* %rax */			\
+		: "+a" (__rax)	/* %rax */			\
 		: "D" (A),      /* %rdi */			\
 		  "S" (B),      /* %rsi */			\
 		  "d" (C),      /* %rdx */			\
@@ -99,7 +99,7 @@
 								\
 	__asm__ volatile (					\
 		"syscall"					\
-		: "+r" (__rax)	/* %rax */			\
+		: "+a" (__rax)	/* %rax */			\
 		: "D" (A),      /* %rdi */			\
 		  "S" (B),      /* %rsi */			\
 		  "d" (C),      /* %rdx */			\
