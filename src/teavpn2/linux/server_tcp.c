@@ -99,12 +99,14 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
  */
 static int init_fd_table(struct srv_ctx_tcp *ctx)
 {
+	size_t max_thread = ctx->cfg->sys.max_thread;
+	size_t max_conn = ctx->cfg->sock.max_conn;
 	size_t client_idx_start;
 	size_t n = 1;
 	size_t i;
 
-	n += ctx->cfg->sys.max_thread;
-	n += ctx->cfg->sock.max_conn;
+	n += max_thread;
+	n += max_conn;
 
 	ctx->fd_table = calloc(n, sizeof(int));
 	if (!ctx->fd_table) {
@@ -113,12 +115,12 @@ static int init_fd_table(struct srv_ctx_tcp *ctx)
 	}
 
 	ctx->fd_table[0] = ctx->tcp_fd;
-	for (i = 0; i < ctx->cfg->sys.max_thread; i++)
+	for (i = 0; i < max_thread; i++)
 		ctx->fd_table[i + 1] = ctx->tun_fds[i];
 
-	client_idx_start = 1 + ctx->cfg->sys.max_thread;
-	for (i = 0; i < ctx->cfg->sock.max_conn; i++)
-		ctx->fd_table[client_idx_start + i] = -1;
+	client_idx_start = max_thread + 1;
+	for (i = 0; i < max_conn; i++)
+		ctx->fd_table[i + client_idx_start] = -1;
 
 	return 0;
 }
