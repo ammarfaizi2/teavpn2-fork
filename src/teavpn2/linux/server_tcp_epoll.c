@@ -6,6 +6,35 @@
 #include <sys/epoll.h>
 #include <teavpn2/server.h>
 
+static int epoll_add(int epoll_fd, int fd, uint32_t events)
+{
+	struct epoll_event ev = {0};
+	int ret;
+
+	ev.events = events;
+	ev.data.fd = fd;
+	ret = __sys_epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+	if (unlikely(ret < 0)) {
+		pr_err("epoll_ctl(): %s", strerror(-ret));
+		return ret;
+	}
+
+	return 0;
+}
+
+static int epoll_del(int epoll_fd, int fd)
+{
+	int ret;
+
+	ret = __sys_epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+	if (unlikely(ret < 0)) {
+		pr_err("epoll_ctl(): %s", strerror(-ret));
+		return ret;
+	}
+
+	return 0;
+}
+
 __hot static int poll_for_events(struct srv_wrk_tcp *wrk)
 {
 	int ret;
@@ -82,7 +111,7 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 {
 	int ret;
 
-	ret = __sys_epoll_create(256);
+	ret = __sys_epoll_create(32);
 	if (ret < 0) {
 		pr_err("epoll_create(): %s", strerror(-ret));
 		return ret;
@@ -92,13 +121,27 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 	wrk->epoll_fd = ret;
 	wrk->ep_timeout = 5000;
 
+	ret = epoll_add(wrk->epoll_fd, wrk->ctx->tun_fds[wrk->tid], EPOLLIN);
+	if (ret < 0) {
+		close_fd(&wrk->epoll_fd);
+		return ret;
+	}
+
 	/*
 	 * Only spawn a worker thread if the thread ID is
 	 * greater than 0 because the thread ID 0 is
 	 * expected to be the main thread.
+	 *
+	 * Also, the mail thread is responsible for
+	 * accepting new connections.
 	 */
-	if (wrk->tid == 0)
-		return 0;
+	if (wrk->tid == 0) {
+		ret = epoll_add(wrk->epoll_fd, wrk->ctx->tcp_fd, EPOLLIN);
+		if (ret < 0) {
+			close_fd(&wrk->epoll_fd);
+			return ret;
+		}
+	}
 
 	pr_debug("Spawning worker thread (%hhu)", wrk->tid);
 	ret = pthread_create(&wrk->thread, NULL, run_worker, wrk);
