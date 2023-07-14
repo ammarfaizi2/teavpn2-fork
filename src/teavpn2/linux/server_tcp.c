@@ -91,6 +91,38 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 	return 0;
 }
 
+/*
+ * The fd table must be able to contain:
+ *   - The TCP server fd.
+ *   - The TUN fd (one fd per worker).
+ *   - The client fd (one fd per client).
+ */
+static int init_fd_table(struct srv_ctx_tcp *ctx)
+{
+	size_t client_idx_start;
+	size_t n = 1;
+	size_t i;
+
+	n += ctx->cfg->sys.max_thread;
+	n += ctx->cfg->sock.max_conn;
+
+	ctx->fd_table = calloc(n, sizeof(int));
+	if (!ctx->fd_table) {
+		pr_err("Cannot allocate memory for fd_table (n=%zu)", n);
+		return -ENOMEM;
+	}
+
+	ctx->fd_table[0] = ctx->tcp_fd;
+	for (i = 0; i < ctx->cfg->sys.max_thread; i++)
+		ctx->fd_table[i + 1] = ctx->tun_fds[i];
+
+	client_idx_start = 1 + ctx->cfg->sys.max_thread;
+	for (i = 0; i < ctx->cfg->sock.max_conn; i++)
+		ctx->fd_table[client_idx_start + i] = -1;
+
+	return 0;
+}
+
 static void destroy_ctx(struct srv_ctx_tcp *ctx)
 {
 	if (ctx->tcp_fd >= 0) {
@@ -110,6 +142,7 @@ static void destroy_ctx(struct srv_ctx_tcp *ctx)
 
 	free(ctx->workers);
 	free(ctx->tun_fds);
+	free(ctx->fd_table);
 }
 
 int run_server_tcp(struct srv_cfg *cfg)
@@ -126,6 +159,10 @@ int run_server_tcp(struct srv_cfg *cfg)
 		goto out;
 
 	ret = init_ctx(&ctx);
+	if (ret < 0)
+		goto out;
+
+	ret = init_fd_table(&ctx);
 	if (ret < 0)
 		goto out;
 

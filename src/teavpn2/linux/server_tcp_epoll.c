@@ -6,13 +6,15 @@
 #include <sys/epoll.h>
 #include <teavpn2/server.h>
 
-static int epoll_add(int epoll_fd, int fd, uint32_t events)
+static int epoll_add(int epoll_fd, int fd, uint32_t events,
+		     union epoll_data data)
 {
-	struct epoll_event ev = {0};
+	struct epoll_event ev = {
+		.events = events,
+		.data = data,
+	};
 	int ret;
 
-	ev.events = events;
-	ev.data.fd = fd;
 	ret = __sys_epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
 	if (unlikely(ret < 0)) {
 		pr_err("epoll_ctl(): %s", strerror(-ret));
@@ -44,6 +46,61 @@ __hot static int poll_for_events(struct srv_wrk_tcp *wrk)
 		return 0;
 
 	return ret;
+}
+
+static int handle_accept_error(int err)
+{
+	if (err == -EAGAIN || err == -EWOULDBLOCK)
+		return 0;
+
+	if (err == -EMFILE || err == -ENFILE) {
+		pr_err("Cannot accept new connection: %s", strerror(-err));
+		return 0;
+	}
+
+	pr_err("accept(): %s", strerror(-err));
+	return err;
+}
+
+static int handle_new_client(struct srv_wrk_tcp *tcp, uint64_t idx)
+{
+	int *fd_table = tcp->ctx->fd_table;
+	struct sockaddr_storage addr;
+	socklen_t len = sizeof(addr);
+	int ret, fd;
+
+	fd = __sys_accept(tcp->ctx->tcp_fd, (struct sockaddr *)&addr, &len);
+	if (unlikely(fd < 0))
+		return handle_accept_error(fd);
+
+	pr_debug("Accepted new connection (fd = %d)", fd);
+	return 0;
+}
+
+__hot static int handle_event(struct srv_wrk_tcp *tcp, struct epoll_event *ev)
+{
+	uint64_t data = ev->data.u64;
+	size_t client_idx_start;
+
+	if (data == 0) {
+		/*
+		 * Handle new connection.
+		 */
+		return 0;
+	}
+
+	client_idx_start = tcp->ctx->cfg->sys.max_thread + 1;
+	if (data >= client_idx_start) {
+		/*
+		 * Handle client.
+		 */
+		return 0;
+	}
+
+	/*
+	 * Handle tun.
+	 */
+	return 0;
 }
 
 __hot static int run_event_loop(struct srv_wrk_tcp *wrk)
@@ -109,7 +166,8 @@ static void *run_worker(void *arg)
 
 static int init_worker(struct srv_wrk_tcp *wrk)
 {
-	int ret;
+	union epoll_data ed;
+	int ret, tun_fd;
 
 	ret = __sys_epoll_create(32);
 	if (ret < 0) {
@@ -121,11 +179,11 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 	wrk->epoll_fd = ret;
 	wrk->ep_timeout = 5000;
 
-	ret = epoll_add(wrk->epoll_fd, wrk->ctx->tun_fds[wrk->tid], EPOLLIN);
-	if (ret < 0) {
-		close_fd(&wrk->epoll_fd);
-		return ret;
-	}
+	ed.u64 = 1u + wrk->tid;
+	tun_fd = wrk->ctx->tun_fds[wrk->tid];
+	ret = epoll_add(wrk->epoll_fd, tun_fd, EPOLLIN, ed);
+	if (ret < 0)
+		goto err;
 
 	/*
 	 * Only spawn a worker thread if the thread ID is
@@ -136,22 +194,27 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 	 * accepting new connections.
 	 */
 	if (wrk->tid == 0) {
-		ret = epoll_add(wrk->epoll_fd, wrk->ctx->tcp_fd, EPOLLIN);
-		if (ret < 0) {
-			close_fd(&wrk->epoll_fd);
-			return ret;
-		}
+		ed.u64 = 0;
+		ret = epoll_add(wrk->epoll_fd, wrk->ctx->tcp_fd, EPOLLIN, ed);
+		if (ret < 0)
+			goto err;
+
+		return ret;
 	}
 
 	pr_debug("Spawning worker thread (%hhu)", wrk->tid);
 	ret = pthread_create(&wrk->thread, NULL, run_worker, wrk);
 	if (ret) {
 		pr_err("pthread_create(): %s", strerror(ret));
-		__sys_close(ret);
-		return ret;
+		ret = -ret;
+		goto err;
 	}
 
 	return 0;
+
+err:
+	close_fd(&wrk->epoll_fd);
+	return ret;
 }
 
 static int init_workers(struct srv_ctx_tcp *ctx)

@@ -322,10 +322,10 @@ set -e;
 p_conf_make "CC = %s\n" "${cc}";
 p_conf_make "CXX = %s\n" "${cxx}";
 p_conf_make "LD = %s\n" "${ld}";
-p_conf_make "CFLAGS = %s\n" "${CFLAGS}";
-p_conf_make "CXXFLAGS = %s\n" "${CXXFLAGS}";
-p_conf_make "LDFLAGS = %s\n" "${LDFLAGS}";
-p_conf_make "LIB_LDFLAGS = %s\n" "${LIB_LDFLAGS}";
+p_conf_make "override CFLAGS := %s \$(CFLAGS)\n" "${CFLAGS}";
+p_conf_make "override CXXFLAGS := %s \$(CXXFLAGS)\n" "${CXXFLAGS}";
+p_conf_make "override LDFLAGS := %s \$(LDFLAGS)\n" "${LDFLAGS}";
+p_conf_make "override LIB_LDFLAGS := %s \$(LIB_LDFLAGS)\n" "${LIB_LDFLAGS}";
 
 enable_config "CONFIG_TEAVPN_SERVER";
 enable_config "CONFIG_TEAVPN_CLIENT";

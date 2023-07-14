@@ -62,6 +62,7 @@ struct srv_ctx_tcp {
 	volatile bool		stop;
 	int			tcp_fd;
 	int			*tun_fds;
+	int			*fd_table;
 
 	struct sockaddr_storage	bind_addr;
 	struct client_tcp	*clients;
