@@ -24,7 +24,7 @@
 extern int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
 			   uint16_t port);
 
-#define STR_IP_AND_PORT (INET6_ADDRSTRLEN + 32)
+#define STR_IP_PORT_LEN (INET6_ADDRSTRLEN + 32)
 /*
  * Convert sockaddr to string.
  *

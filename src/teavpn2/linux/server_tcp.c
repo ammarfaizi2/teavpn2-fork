@@ -9,7 +9,7 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 {
 	struct sockaddr_storage *addr = &ctx->bind_addr;
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
-	char buf[STR_IP_AND_PORT];
+	char buf[STR_IP_PORT_LEN];
 	socklen_t len;
 	int ret, fd;
 
@@ -41,9 +41,9 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 		goto out_err;
 	}
 
+	ctx->tcp_fd = fd;
 	sockaddr_to_str(buf, addr);
 	pr_info("Listening on %s", buf);
-	ctx->tcp_fd = fd;
 	return 0;
 
 out_err:
@@ -51,10 +51,15 @@ out_err:
 	return ret;
 }
 
-static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
+static int init_context(struct srv_ctx_tcp *ctx)
 {
 	struct srv_cfg_sys *sys = &ctx->cfg->sys;
+	uint8_t i;
 	int ret;
+
+	ret = install_signal_stop_handler(&ctx->stop);
+	if (ret < 0)
+		return ret;
 
 	ret = server_tcp_init_sock(ctx);
 	if (ret < 0)
@@ -63,6 +68,11 @@ static int server_tcp_init_ctx(struct srv_ctx_tcp *ctx)
 	ctx->workers = calloc(sys->max_thread, sizeof(*ctx->workers));
 	if (!ctx->workers)
 		return -ENOMEM;
+
+	for (i = 0; i < sys->max_thread; i++) {
+		ctx->workers[i].ctx = ctx;
+		ctx->workers[i].tid = i;
+	}
 
 	return 0;
 }
@@ -90,7 +100,7 @@ int run_server_tcp(struct srv_cfg *cfg)
 	if (ret < 0)
 		goto out;
 
-	ret = server_tcp_init_ctx(&ctx);
+	ret = init_context(&ctx);
 	if (ret < 0)
 		goto out;
 
