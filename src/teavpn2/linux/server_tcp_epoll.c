@@ -5,6 +5,18 @@
 #include <signal.h>
 #include <sys/epoll.h>
 #include <teavpn2/server.h>
+#include "server_tcp.h"
+
+enum {
+	FD_TYPE_TCP	= (1ull << 48ull),
+	FD_TYPE_TUN	= (1ull << 49ull),
+	FD_TYPE_CLIENT	= (1ull << 50ull),
+	FD_TYPE_MASK	= (FD_TYPE_TCP | FD_TYPE_TUN | FD_TYPE_CLIENT),
+};
+
+#define FD_IS_TCP(X)	((X) & FD_TYPE_TCP)
+#define FD_IS_TUN(X)	((X) & FD_TYPE_TUN)
+#define FD_IS_CLIENT(X)	((X) & FD_TYPE_CLIENT)
 
 static int epoll_add(int epoll_fd, int fd, uint32_t events,
 		     union epoll_data data)
@@ -62,45 +74,95 @@ static int handle_accept_error(int err)
 	return err;
 }
 
-static int handle_new_client(struct srv_wrk_tcp *tcp, uint64_t idx)
+static struct srv_wrk_tcp *get_the_best_worker(struct srv_ctx_tcp *ctx)
+{	
+	struct srv_wrk_tcp *wrk;
+	uint32_t i, nr, min;
+
+	min = ctx->workers[0].nr_fds;
+	wrk = &ctx->workers[0];
+
+	for (i = 1; i < ctx->cfg->sys.max_thread; i++) {
+		nr = atomic_load_explicit(&ctx->workers[i].nr_fds, memory_order_relaxed);
+		if (nr < min) {
+			min = nr;
+			wrk = &ctx->workers[i];
+		}
+	}
+
+	return wrk;
+}
+
+static int __handle_new_client(struct srv_ctx_tcp *ctx, struct client_tcp *client)
 {
-	int *fd_table = tcp->ctx->fd_table;
+	struct srv_wrk_tcp *wrk;
+	union epoll_data ed;
+	int ret;
+
+	wrk = get_the_best_worker(ctx);
+	ed.u64 = FD_TYPE_CLIENT | ((uint64_t)(uintptr_t)client);
+	ret = epoll_add(wrk->epoll_fd, client->fd, EPOLLIN, ed);
+	if (unlikely(ret < 0))
+		return ret;
+
+	atomic_fetch_add_explicit(&wrk->nr_fds, 1u, memory_order_relaxed);
+	return 0;
+}
+
+static int handle_new_client(struct srv_wrk_tcp *wrk)
+{
 	struct sockaddr_storage addr;
 	socklen_t len = sizeof(addr);
+	struct client_tcp *client;
+	char buf[STR_IP_PORT_LEN];
 	int ret, fd;
 
-	fd = __sys_accept(tcp->ctx->tcp_fd, (struct sockaddr *)&addr, &len);
+	memset(&addr, 0, sizeof(addr));
+	fd = __sys_accept(wrk->ctx->tcp_fd, (struct sockaddr *)&addr, &len);
 	if (unlikely(fd < 0))
 		return handle_accept_error(fd);
 
-	pr_debug("Accepted new connection (fd = %d)", fd);
+	client = tcp_client_get(wrk->ctx);
+	if (unlikely(!client)) {
+		pr_err("The client slot is full, cannot accept new connection");
+		__sys_close(fd);
+		return 0;
+	}
+
+	client->fd = fd;
+	client->src = addr;
+	sockaddr_to_str(buf, &addr);
+	pr_info("Accepted new connection from %s (fd = %d)", buf, fd);
+
+	ret = __handle_new_client(wrk->ctx, client);
+	if (unlikely(ret < 0)) {
+		pr_err("handle_new_client(): %s", strerror(-ret));
+		tcp_client_put(wrk->ctx, client);
+		return ret;
+	}
+
 	return 0;
 }
 
 __hot static int handle_event(struct srv_wrk_tcp *tcp, struct epoll_event *ev)
 {
 	uint64_t data = ev->data.u64;
-	size_t client_idx_start;
+	uint64_t type;
 
-	if (data == 0) {
-		/*
-		 * Handle new connection.
-		 */
+	type = data & FD_TYPE_MASK;
+	data = data & ~FD_TYPE_MASK;
+
+	switch (type) {
+	case FD_TYPE_TCP:
+		return handle_new_client(tcp);
+	case FD_TYPE_TUN:
 		return 0;
-	}
-
-	client_idx_start = tcp->ctx->cfg->sys.max_thread + 1;
-	if (data >= client_idx_start) {
-		/*
-		 * Handle client.
-		 */
+	case FD_TYPE_CLIENT:
 		return 0;
+	default:
+		pr_err("Unknown fd type: %llu", (unsigned long long)type);
+		return -EINVAL;
 	}
-
-	/*
-	 * Handle tun.
-	 */
-	return 0;
 }
 
 __hot static int run_event_loop(struct srv_wrk_tcp *wrk)
@@ -114,7 +176,13 @@ __hot static int run_event_loop(struct srv_wrk_tcp *wrk)
 	}
 
 	for (i = 0; i < ret; i++) {
-		struct epoll_event *ev = &wrk->events[i];
+		int err;
+
+		err = handle_event(wrk, &wrk->events[i]);
+		if (unlikely(err < 0)) {
+			pr_err("handle_event(): %s", strerror(-err));
+			return err;
+		}
 	}
 
 	return 0;
@@ -161,25 +229,34 @@ static void *run_worker(void *arg)
 
 	atomic_fetch_sub(&ctx->online_workers, 1u);
 	pr_info("Thread %hhu is exiting...", wrk->tid);
-	return NULL;
+	return (void *)(intptr_t)ret;
 }
 
 static int init_worker(struct srv_wrk_tcp *wrk)
 {
+	struct epoll_event *events;
 	union epoll_data ed;
 	int ret, tun_fd;
 
-	ret = __sys_epoll_create(32);
+	ret = __sys_epoll_create(32u);
 	if (ret < 0) {
 		pr_err("epoll_create(): %s", strerror(-ret));
 		return ret;
 	}
 
+	events = calloc(32u, sizeof(struct epoll_event));
+	if (!events) {
+		pr_err("calloc(): %s", strerror(ENOMEM));
+		ret = -ENOMEM;
+		goto err;
+	}
+
 	pr_debug("Created epoll fd (%d)", ret);
 	wrk->epoll_fd = ret;
 	wrk->ep_timeout = 5000;
+	wrk->events = events;
 
-	ed.u64 = 1u + wrk->tid;
+	ed.u64 = FD_TYPE_TUN & ((uint64_t)wrk->tun_fd);
 	tun_fd = wrk->ctx->tun_fds[wrk->tid];
 	ret = epoll_add(wrk->epoll_fd, tun_fd, EPOLLIN, ed);
 	if (ret < 0)
@@ -194,11 +271,13 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 	 * accepting new connections.
 	 */
 	if (wrk->tid == 0) {
-		ed.u64 = 0;
+
+		ed.u64 = FD_TYPE_TCP;
 		ret = epoll_add(wrk->epoll_fd, wrk->ctx->tcp_fd, EPOLLIN, ed);
 		if (ret < 0)
 			goto err;
 
+		atomic_fetch_add_explicit(&wrk->nr_fds, 1u, memory_order_relaxed);
 		return ret;
 	}
 
@@ -240,6 +319,14 @@ static int init_workers(struct srv_ctx_tcp *ctx)
 	}
 
 	return 0;
+}
+
+static int run_worker_on_main_thread(struct srv_ctx_tcp *ctx)
+{
+	void *ret;
+
+	ret = run_worker(&ctx->workers[0]);
+	return (int)(intptr_t)ret;
 }
 
 static void join_all_workers(struct srv_ctx_tcp *ctx)
@@ -301,7 +388,7 @@ int run_server_tcp_epoll(struct srv_ctx_tcp *ctx)
 	if (ret < 0)
 		goto out;
 
-	run_worker(&ctx->workers[0]);
+	ret = run_worker_on_main_thread(ctx);
 out:
 	destroy_workers(ctx);
 	return 0;

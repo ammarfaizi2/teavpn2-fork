@@ -13,26 +13,27 @@
 
 #include "net.h"
 
+static const char *net_tun_path[] = {
+	"/dev/net/tun",
+	"/dev/tun",
+	NULL,
+};
+
 static int open_dev_tun(void)
 {
-	static const char *dtf = "/dev/net/tun";
-	bool fallback = false;
-	int fd;
+	size_t i;
+	int ret;
 
-again:
-	fd = __sys_open(dtf, O_RDWR, 0);
-	if (fd == -ENOENT && !fallback) {
-		pr_info("Couldn't open %s, try to opening /dev/tun instead", dtf);
-		dtf = "/dev/tun";
-		fallback = true;
-		goto again;
+	for (i = 0; net_tun_path[i] != NULL; i++) {
+		ret = __sys_open(net_tun_path[i], O_RDWR, 0);
+		if (ret >= 0)
+			return ret;
 	}
 
-	if (fd < 0)
-		pr_err("open(\"%s\", O_RDWR): %s", dtf, strerror(-fd));
-
-	return fd;
+	pr_err("open_dev_tun(): %s", strerror(-ret));
+	return ret;
 }
+
 
 /*
  * https://www.kernel.org/doc/Documentation/networking/tuntap.txt

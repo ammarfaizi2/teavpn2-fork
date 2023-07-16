@@ -5,6 +5,7 @@
 
 #include <teavpn2/server.h>
 #include "net.h"
+#include "server_tcp.h"
 
 static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 {
@@ -16,8 +17,7 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 
 	ret = str_to_sockaddr(addr, sock->bind_addr, sock->bind_port);
 	if (ret) {
-		printf("Invalid bind address %s (port = %hu)", sock->bind_addr,
-		       sock->bind_port);
+		pr_err("Invalid bind address %s (port = %hu)", sock->bind_addr, sock->bind_port);
 		return ret;
 	}
 
@@ -54,9 +54,10 @@ out_err:
 
 static int init_ctx(struct srv_ctx_tcp *ctx)
 {
+	struct srv_cfg_sock *sock = &ctx->cfg->sock;
 	struct srv_cfg_sys *sys = &ctx->cfg->sys;
 	struct srv_cfg_net *net = &ctx->cfg->net;
-	uint8_t i;
+	uint32_t i;
 	int ret;
 
 	ret = install_signal_stop_handler(&ctx->stop);
@@ -75,6 +76,17 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 	if (!ctx->tun_fds)
 		return -ENOMEM;
 
+	ret = mutex_init(&ctx->clients_lock);
+	if (ret < 0)
+		return ret;
+
+	pr_debug("Allocating %u client slots", sock->max_conn);
+	ctx->clients = calloc(sock->max_conn, sizeof(*ctx->clients));
+	if (!ctx->clients) {
+		mutex_destroy(&ctx->clients_lock);
+		return -ENOMEM;
+	}
+
 	for (i = 0; i < sys->max_thread; i++) {
 		int tun_fd;
 
@@ -88,39 +100,8 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 		ctx->tun_fds[i] = tun_fd;
 	}
 
-	return 0;
-}
-
-/*
- * The fd table must be able to contain:
- *   - The TCP server fd.
- *   - The TUN fd (one fd per worker).
- *   - The client fd (one fd per client).
- */
-static int init_fd_table(struct srv_ctx_tcp *ctx)
-{
-	size_t max_thread = ctx->cfg->sys.max_thread;
-	size_t max_conn = ctx->cfg->sock.max_conn;
-	size_t client_idx_start;
-	size_t n = 1;
-	size_t i;
-
-	n += max_thread;
-	n += max_conn;
-
-	ctx->fd_table = calloc(n, sizeof(int));
-	if (!ctx->fd_table) {
-		pr_err("Cannot allocate memory for fd_table (n=%zu)", n);
-		return -ENOMEM;
-	}
-
-	ctx->fd_table[0] = ctx->tcp_fd;
-	for (i = 0; i < max_thread; i++)
-		ctx->fd_table[i + 1] = ctx->tun_fds[i];
-
-	client_idx_start = max_thread + 1;
-	for (i = 0; i < max_conn; i++)
-		ctx->fd_table[i + client_idx_start] = -1;
+	for (i = 0; i < sock->max_conn; i++)
+		ctx->clients[i].fd = -1;
 
 	return 0;
 }
@@ -144,7 +125,10 @@ static void destroy_ctx(struct srv_ctx_tcp *ctx)
 
 	free(ctx->workers);
 	free(ctx->tun_fds);
-	free(ctx->fd_table);
+	if (ctx->clients) {
+		mutex_destroy(&ctx->clients_lock);
+		free(ctx->clients);
+	}
 }
 
 int run_server_tcp(struct srv_cfg *cfg)
@@ -164,10 +148,6 @@ int run_server_tcp(struct srv_cfg *cfg)
 	if (ret < 0)
 		goto out;
 
-	ret = init_fd_table(&ctx);
-	if (ret < 0)
-		goto out;
-
 	switch (ret) {
 	case EVT_EPOLL:
 		ret = run_server_tcp_epoll(&ctx);
@@ -180,4 +160,39 @@ int run_server_tcp(struct srv_cfg *cfg)
 out:
 	destroy_ctx(&ctx);
 	return ret;
+}
+
+struct client_tcp *tcp_client_get(struct srv_ctx_tcp *ctx)
+{
+	uint16_t max_conn = ctx->cfg->sock.max_conn;
+	struct client_tcp *clients = ctx->clients;
+	struct client_tcp *ret = NULL;
+	uint16_t i;
+
+	mutex_lock(&ctx->clients_lock);
+	for (i = 0; i < max_conn; i++) {
+		if (clients[i].fd < 0) {
+			ret = &clients[i];
+			break;
+		}
+	}
+	mutex_unlock(&ctx->clients_lock);
+
+	return ret;
+}
+
+void tcp_client_put(struct srv_ctx_tcp *ctx, struct client_tcp *client)
+{
+	if (client->fd >= 0) {
+		char buf[STR_IP_PORT_LEN];
+
+		sockaddr_to_str(buf, &client->src);
+		pr_debug("Closing client fd (%d) (src=%s)", client->fd, buf);
+		__sys_close(client->fd);
+	}
+
+	mutex_lock(&ctx->clients_lock);
+	memset(client, 0, sizeof(*client));
+	client->fd = -1;
+	mutex_unlock(&ctx->clients_lock);
 }

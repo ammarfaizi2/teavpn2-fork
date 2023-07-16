@@ -56,13 +56,13 @@ struct srv_wrk_tcp {
 
 	uint8_t			tid;
 	pthread_t		thread;
+	_Atomic(uint32_t)	nr_fds;
 };
 
 struct srv_ctx_tcp {
 	volatile bool		stop;
 	int			tcp_fd;
 	int			*tun_fds;
-	int			*fd_table;
 
 	struct sockaddr_storage	bind_addr;
 	struct client_tcp	*clients;
