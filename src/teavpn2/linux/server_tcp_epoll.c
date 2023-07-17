@@ -8,9 +8,9 @@
 #include "server_tcp.h"
 
 enum {
-	FD_TYPE_TCP	= (1ull << 48ull),
-	FD_TYPE_TUN	= (1ull << 49ull),
-	FD_TYPE_CLIENT	= (1ull << 50ull),
+	FD_TYPE_TCP	= (1ull << 49ull),
+	FD_TYPE_TUN	= (1ull << 50ull),
+	FD_TYPE_CLIENT	= (1ull << 51ull),
 	FD_TYPE_MASK	= (FD_TYPE_TCP | FD_TYPE_TUN | FD_TYPE_CLIENT),
 };
 
@@ -18,31 +18,30 @@ enum {
 #define FD_IS_TUN(X)	((X) & FD_TYPE_TUN)
 #define FD_IS_CLIENT(X)	((X) & FD_TYPE_CLIENT)
 
-static int epoll_add(int epoll_fd, int fd, uint32_t events,
-		     union epoll_data data)
+static int epoll_add(int ep_fd, int fd, uint32_t events, union epoll_data data)
 {
 	struct epoll_event ev = {
 		.events = events,
-		.data = data,
+		.data = data
 	};
 	int ret;
 
-	ret = __sys_epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+	ret = __sys_epoll_ctl(ep_fd, EPOLL_CTL_ADD, fd, &ev);
 	if (unlikely(ret < 0)) {
-		pr_err("epoll_ctl(): %s", strerror(-ret));
+		pr_err("epoll_ctl(%d, ADD, %d): %s", ep_fd, fd, strerror(-ret));
 		return ret;
 	}
 
 	return 0;
 }
 
-static int epoll_del(int epoll_fd, int fd)
+static int epoll_del(int ep_fd, int fd)
 {
 	int ret;
 
-	ret = __sys_epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+	ret = __sys_epoll_ctl(ep_fd, EPOLL_CTL_DEL, fd, NULL);
 	if (unlikely(ret < 0)) {
-		pr_err("epoll_ctl(): %s", strerror(-ret));
+		pr_err("epoll_ctl(%d, DEL, %d): %s", ep_fd, fd, strerror(-ret));
 		return ret;
 	}
 
@@ -83,7 +82,7 @@ static struct srv_wrk_tcp *get_the_best_worker(struct srv_ctx_tcp *ctx)
 	wrk = &ctx->workers[0];
 
 	for (i = 1; i < ctx->cfg->sys.max_thread; i++) {
-		nr = atomic_load_explicit(&ctx->workers[i].nr_fds, memory_order_relaxed);
+		nr = atomic_load_relaxed(&ctx->workers[i].nr_fds);
 		if (nr < min) {
 			min = nr;
 			wrk = &ctx->workers[i];
@@ -105,7 +104,7 @@ static int __handle_new_client(struct srv_ctx_tcp *ctx, struct client_tcp *clien
 	if (unlikely(ret < 0))
 		return ret;
 
-	atomic_fetch_add_explicit(&wrk->nr_fds, 1u, memory_order_relaxed);
+	atomic_add_relaxed(&wrk->nr_fds, 1u);
 	return 0;
 }
 
@@ -144,21 +143,28 @@ static int handle_new_client(struct srv_wrk_tcp *wrk)
 	return 0;
 }
 
-__hot static int handle_event(struct srv_wrk_tcp *tcp, struct epoll_event *ev)
+__hot static int handle_tun_event(struct srv_wrk_tcp *wrk, int tun_fd)
+{
+	assert(tun_fd == wrk->tun_fd);
+	return 0;
+}
+
+__hot static int handle_event(struct srv_wrk_tcp *wrk, struct epoll_event *ev)
 {
 	uint64_t data = ev->data.u64;
 	uint64_t type;
+	int fd;
 
 	type = data & FD_TYPE_MASK;
 	data = data & ~FD_TYPE_MASK;
 
 	switch (type) {
 	case FD_TYPE_TCP:
-		return handle_new_client(tcp);
+		return handle_new_client(wrk);
 	case FD_TYPE_TUN:
-		return 0;
+		return handle_tun_event(wrk, (int)data);
 	case FD_TYPE_CLIENT:
-		return 0;
+		return server_tcp_handle_client(wrk, (struct client_tcp *)(uintptr_t)data);
 	default:
 		pr_err("Unknown fd type: %llu", (unsigned long long)type);
 		return -EINVAL;
@@ -216,7 +222,7 @@ static void *run_worker(void *arg)
 	struct srv_ctx_tcp *ctx = wrk->ctx;
 	int ret;
 
-	atomic_fetch_add(&ctx->online_workers, 1u);
+	atomic_add_relaxed(&ctx->online_workers, 1u);
 	wait_for_all_threads_ready(wrk);
 
 	while (!ctx->stop) {
@@ -227,7 +233,7 @@ static void *run_worker(void *arg)
 		}
 	}
 
-	atomic_fetch_sub(&ctx->online_workers, 1u);
+	atomic_sub_relaxed(&ctx->online_workers, 1u);
 	pr_info("Thread %hhu is exiting...", wrk->tid);
 	return (void *)(intptr_t)ret;
 }
@@ -277,7 +283,7 @@ static int init_worker(struct srv_wrk_tcp *wrk)
 		if (ret < 0)
 			goto err;
 
-		atomic_fetch_add_explicit(&wrk->nr_fds, 1u, memory_order_relaxed);
+		atomic_add_relaxed(&wrk->nr_fds, 1u);
 		return ret;
 	}
 

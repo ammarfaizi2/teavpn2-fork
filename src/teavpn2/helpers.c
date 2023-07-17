@@ -63,6 +63,19 @@ int sockaddr_to_str(char *addr, const struct sockaddr_storage *ss)
 	return 0;
 }
 
+char *addr_to_str_pt(const struct sockaddr_storage *ss)
+{
+	static __thread char __buf[8][STR_IP_PORT_LEN];
+	static __thread uint8_t __idx = 0;
+	char *buf;
+	
+	buf = __buf[__idx++ % ARRAY_SIZE(__buf)];
+	if (sockaddr_to_str(buf, ss) < 0)
+		return "(invalid_addr)";
+
+	return buf;
+}
+
 bool teavpn_check_uname(const char *u)
 {
 	size_t len = 0;

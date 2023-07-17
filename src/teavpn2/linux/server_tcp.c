@@ -7,7 +7,7 @@
 #include "net.h"
 #include "server_tcp.h"
 
-static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
+static int init_socket(struct srv_ctx_tcp *ctx)
 {
 	struct sockaddr_storage *addr = &ctx->bind_addr;
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
@@ -27,6 +27,7 @@ static int server_tcp_init_sock(struct srv_ctx_tcp *ctx)
 		return fd;
 	}
 
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
 	pr_debug("Created TCP socket fd (%d)", fd);
 
 	len = get_sock_family_len(addr->ss_family);
@@ -64,7 +65,7 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 	if (ret < 0)
 		return ret;
 
-	ret = server_tcp_init_sock(ctx);
+	ret = init_socket(ctx);
 	if (ret < 0)
 		return ret;
 
@@ -184,10 +185,7 @@ struct client_tcp *tcp_client_get(struct srv_ctx_tcp *ctx)
 void tcp_client_put(struct srv_ctx_tcp *ctx, struct client_tcp *client)
 {
 	if (client->fd >= 0) {
-		char buf[STR_IP_PORT_LEN];
-
-		sockaddr_to_str(buf, &client->src);
-		pr_debug("Closing client fd (%d) (src=%s)", client->fd, buf);
+		pr_debug("Closing client fd (%d) (src=%s)", client->fd, addr_to_str_pt(&client->src));
 		__sys_close(client->fd);
 	}
 
@@ -195,4 +193,92 @@ void tcp_client_put(struct srv_ctx_tcp *ctx, struct client_tcp *client)
 	memset(client, 0, sizeof(*client));
 	client->fd = -1;
 	mutex_unlock(&ctx->clients_lock);
+}
+
+static int server_handle_client_disconnect(struct srv_wrk_tcp *wrk,
+					   struct client_tcp *cl)
+{
+	pr_info("Client %s disconnected (fd = %d)", addr_to_str_pt(&cl->src), cl->fd);
+	tcp_client_put(wrk->ctx, cl);
+	return 0;
+}
+
+static int handle_client(struct srv_wrk_tcp *wrk, struct client_tcp *client)
+{
+	client->cpkt_len = 0;
+
+	return 0;
+}
+
+static int server_verify_packet(struct client_tcp *client)
+{
+	uint16_t total_len = client->cpkt_len;
+	struct pkt *pkt = &client->cpkt;
+	uint16_t expected_len;
+	uint16_t pkt_len;
+
+	if (unlikely(total_len < sizeof(pkt->hdr)))
+		return -EAGAIN;
+
+	pkt_len = ntohs(pkt->hdr.len);
+	expected_len = pkt_len + sizeof(pkt->hdr);
+	if (unlikely(expected_len > sizeof(*pkt))) {
+		pr_err("Client %s sent invalid packet length (%hu)\n", addr_to_str_pt(&client->src), pkt_len);
+		return -EINVAL;
+	}
+
+	if (unlikely(total_len < expected_len))
+		return -EAGAIN;
+
+	return 0;
+}
+
+int server_tcp_handle_client(struct srv_wrk_tcp *wrk, struct client_tcp *client)
+{
+	int err = 0;
+	ssize_t ret;
+	size_t len;
+	char *buf;
+
+	buf = ((char *)&client->cpkt) + client->cpkt_len;
+	len = sizeof(client->cpkt) - client->cpkt_len;
+	ret = __sys_recv(client->fd, buf, len, MSG_DONTWAIT);
+	if (unlikely(ret < 0)) {
+
+		if (ret == -EAGAIN)
+			return 0;
+
+		/*
+		 * recv() error.
+		 */
+		pr_err("recv(): %s", strerror((int)-ret));
+		err = (int)-ret;
+		goto out_dc;
+	}
+
+	if (unlikely(ret == 0)) {
+		/*
+		 * The client closed the connection.
+		 */
+		goto out_dc;
+	}
+
+	client->cpkt_len += (uint16_t)ret;
+
+	err = server_verify_packet(client);
+	if (unlikely(err == -EINVAL)) {
+		/*
+		 * The client sent an invalid packet.
+		 */
+		goto out_dc;
+	}
+
+	if (ret == -EINPROGRESS)
+		return 0;
+
+	return handle_client(wrk, client);
+
+out_dc:
+	server_handle_client_disconnect(wrk, client);
+	return err;
 }

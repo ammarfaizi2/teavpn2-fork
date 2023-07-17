@@ -8,5 +8,6 @@
 
 struct client_tcp *tcp_client_get(struct srv_ctx_tcp *ctx);
 void tcp_client_put(struct srv_ctx_tcp *ctx, struct client_tcp *client);
+int server_tcp_handle_client(struct srv_wrk_tcp *wrk, struct client_tcp *client);
 
 #endif /* #ifndef TEAVPN2__SERVER__SERVER_TCP_H */

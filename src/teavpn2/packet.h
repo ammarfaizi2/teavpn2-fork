@@ -57,7 +57,7 @@ enum {
 	TSRV_AURJ_INVALID		= 3u,
 };
 
-#define PER_PACKET_SIZE		2048
+#define PER_PACKET_SIZE		4096
 
 struct pkt_header {
 	uint8_t		type;

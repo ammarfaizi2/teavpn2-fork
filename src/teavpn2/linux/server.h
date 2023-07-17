@@ -30,6 +30,8 @@ struct client_tcp {
 	uint64_t		nrx;
 	uint64_t		ntx;
 
+	bool			is_authenticated;
+
 	/*
 	 * spkt = Server packet buffer (for sending).
 	 * cpkt = Client packet buffer (for receiving).

@@ -24,7 +24,7 @@
 extern int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
 			   uint16_t port);
 
-#define STR_IP_PORT_LEN (INET6_ADDRSTRLEN + 32)
+#define STR_IP_PORT_LEN (INET6_ADDRSTRLEN + 16)
 /*
  * Convert sockaddr to string.
  *
@@ -33,6 +33,8 @@ extern int str_to_sockaddr(struct sockaddr_storage *ss, const char *addr,
  * @return	Return 0 on success, otherwise return -EINVAL.
  */
 extern int sockaddr_to_str(char *addr, const struct sockaddr_storage *ss);
+
+char *addr_to_str_pt(const struct sockaddr_storage *ss);
 
 /*
  * Validate username. Username must be between 3 to 255 characters, and
@@ -91,5 +93,9 @@ static inline socklen_t get_sock_family_len(int family)
 #include <teavpn2/linux/mutex.h>
 #include <teavpn2/linux/helpers.h>
 #endif
+
+#define atomic_add_relaxed(ptr, val) atomic_fetch_add_explicit(ptr, val, memory_order_relaxed)
+#define atomic_sub_relaxed(ptr, val) atomic_fetch_sub_explicit(ptr, val, memory_order_relaxed)
+#define atomic_load_relaxed(ptr) atomic_load_explicit(ptr, memory_order_relaxed)
 
 #endif /* #ifndef TEAVPN2__HELPERS_H */
