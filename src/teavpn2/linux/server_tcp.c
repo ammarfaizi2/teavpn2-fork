@@ -53,6 +53,16 @@ out_err:
 	return ret;
 }
 
+static int destroy_socket(struct srv_ctx_tcp *ctx)
+{
+	if (ctx->tcp_fd >= 0) {
+		pr_debug("Closing TCP fd (%d)", ctx->tcp_fd);
+		close_fd(&ctx->tcp_fd);
+	}
+
+	return 0;
+}
+
 static int init_ctx(struct srv_ctx_tcp *ctx)
 {
 	struct srv_cfg_sock *sock = &ctx->cfg->sock;
@@ -70,30 +80,37 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 		return ret;
 
 	ctx->workers = calloc(sys->max_thread, sizeof(*ctx->workers));
-	if (!ctx->workers)
-		return -ENOMEM;
+	if (!ctx->workers) {
+		ret = -ENOMEM;
+		goto err_socket;
+	}
 
 	ctx->tun_fds = calloc(sys->max_thread, sizeof(*ctx->tun_fds));
-	if (!ctx->tun_fds)
-		return -ENOMEM;
+	if (!ctx->tun_fds) {
+		ret = -ENOMEM;
+		goto err_workers;
+	}
 
 	ret = mutex_init(&ctx->clients_lock);
 	if (ret < 0)
-		return ret;
+		goto err_tun_fds;
 
 	pr_debug("Allocating %u client slots", sock->max_conn);
 	ctx->clients = calloc(sock->max_conn, sizeof(*ctx->clients));
 	if (!ctx->clients) {
-		mutex_destroy(&ctx->clients_lock);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_clients_lock;
 	}
 
 	for (i = 0; i < sys->max_thread; i++) {
 		int tun_fd;
 
 		tun_fd = tun_alloc(net->dev, IFF_TUN | IFF_MULTI_QUEUE);
-		if (tun_fd < 0)
-			return tun_fd;
+		if (tun_fd < 0) {
+			pr_err("tun_alloc(): %s", strerror(-tun_fd));
+			ret = tun_fd;
+			goto err_tun_fds_close;
+		}
 
 		pr_debug("Created TUN fd (%d)", tun_fd);
 		ctx->workers[i].ctx = ctx;
@@ -105,6 +122,19 @@ static int init_ctx(struct srv_ctx_tcp *ctx)
 		ctx->clients[i].fd = -1;
 
 	return 0;
+
+err_tun_fds_close:
+	while (i--)
+		__sys_close(ctx->tun_fds[i]);
+err_clients_lock:
+	mutex_destroy(&ctx->clients_lock);
+err_tun_fds:
+	free(ctx->tun_fds);
+err_workers:
+	free(ctx->workers);
+err_socket:
+	destroy_socket(ctx);
+	return ret;
 }
 
 static void destroy_ctx(struct srv_ctx_tcp *ctx)
@@ -147,7 +177,7 @@ int run_server_tcp(struct srv_cfg *cfg)
 
 	ret = init_ctx(&ctx);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	switch (ret) {
 	case EVT_EPOLL:
@@ -158,7 +188,6 @@ int run_server_tcp(struct srv_cfg *cfg)
 		break;
 	}
 
-out:
 	destroy_ctx(&ctx);
 	return ret;
 }
